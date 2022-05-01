@@ -1,0 +1,221 @@
+---
+title: "Understanding the HCP ICA-FIX Pre-processing Pipeline"
+author: "Damon Pham"
+date: "1/01/2021"
+output: html_document
+---
+
+```{r}
+source("../analysis/0_SharedCode.R")
+stopifnot(SharedCode_version == c(10,0))
+
+scan_dir <- "/N/dcwan/projects/hcp/103818/MNINonLinear/Results/rfMRI_REST1_LR"
+```
+
+__Goal: to understand the HCP ICA-FIX pre-processing pipeline__
+
+The resting-state fMRI data in the HCP has been pre-processed with two different pipelines: a minimal pre-processing pipeline (MPP) and a pipeline which includes additional cleaning after the MPP such as removal of ICA-FIX noise components. The ICA-FIX pipeline is summarized in the below figure:
+
+![HCP ICA-FIX Pipepline](FC_Flowchart_ICAFIX.png)
+
+The files of interest are as follows:
+
+```{r}
+# NIFTI -------------------------------------------------------------------------------
+# MPP NIFTI data
+nii_mpp_fname <- file.path(scan_dir, "rfMRI_REST1_LR.nii.gz")
+# MPP+highpass NIFTI data does not exist
+# Confirm highpass happens before ICA-FIX here: https://git.fmrib.ox.ac.uk/fsl/fix_temp_legacy/-/blob/master/hcp_fix
+# Full ICA-FIX pipeline NIFTI data
+nii_ica_fname <- file.path(scan_dir, "rfMRI_REST1_LR_hp2000_clean.nii.gz")
+
+# CIFTI -------------------------------------------------------------------------------
+# MSMSulc MPP CIFTI data
+cii_mpp_fname <- file.path(scan_dir, "rfMRI_REST1_LR_Atlas.dtseries.nii")
+# MSMAll MPP CIFTI data
+cii_msmall_mpp_fname <- file.path(scan_dir, "rfMRI_REST1_LR_Atlas_MSMAll.dtseries.nii")
+# MSMAll MPP+highpass CIFTI data -- this is actually for MSMAll! 
+cii_msmall_hpf_fname <- file.path(scan_dir, "Atlas_hp_preclean.dtseries.nii")
+# MSMSulc ICA-FIX CIFTI data
+cii_ica_fname <- file.path(scan_dir, "rfMRI_REST1_LR_Atlas_hp2000_clean.dtseries.nii")
+
+# Motion ------------------------------------------------------------------------------
+# Realignment parameters: (3 translation + 3 rotation) * 2 (derivative too)
+rp_fname <- "/N/dcwan/projects/hcp/103818/MNINonLinear/Results/rfMRI_REST1_LR/Movement_Regressors.txt"
+# Not used: realignment parameters after de-meaning and detrending (NOT after the Gaussian highpass filter)
+rpdt_fname <- "/N/dcwan/projects/hcp/103818/MNINonLinear/Results/rfMRI_REST1_LR/Movement_Regressors_dt.txt"
+
+# ICA-FIX -----------------------------------------------------------------------------
+# IC timecourses
+ic_fname <- "/N/dcwan/projects/hcp/103818/MNINonLinear/Results/rfMRI_REST1_LR/rfMRI_REST1_LR_hp2000.ica/filtered_func_data.ica/melodic_mix"
+# IC spatial maps
+icmap_fname <- "/N/dcwan/projects/hcp/103818/MNINonLinear/Results/rfMRI_REST1_LR/rfMRI_REST1_LR_hp2000.ica/filtered_func_data.ica/melodic_oIC.dscalar.nii"
+# IC noise/signal labels
+icid_fname <- "/N/dcwan/projects/hcp/103818/MNINonLinear/Results/rfMRI_REST1_LR/rfMRI_REST1_LR_hp2000.ica/Noise.txt"
+```
+
+I learned how the ICA-FIX pipeline was implemented by referencing these resources:
+
+* The [HCP S1200 Release Reference Manual](https://www.humanconnectome.org/storage/app/media/documentation/s1200/HCP_S1200_Release_Reference_Manual.pdf) explains ICA-FIX on pages 97-100. It also describes the columns of the motion RP files. 
+* This [description of FIX file inputs](https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/FIX/UserGuide) and [this tutorial](https://fsl.fmrib.ox.ac.uk/fslcourse/lectures/practicals/ica/index.html) helped me identify the files.
+* The article ["Resting-State fMRI in the Human Connectome Project" by Smith, ..., Glasser et al. (2014)](https://www.sciencedirect.com/science/article/pii/S1053811913005338) outlines the pipeline:
+
+> The HCP pre-processing pipeline is very unaggressive with respect to temporal frequency filtering. Minimal highpass filtering is applied (using the − bptf option in FSL's fslmaths tool), with a “cutoff” of 2000s (i.e., FWHM = 2355 s; note that data length is 864 s/run) and a slow rolloff of the power (of retained frequencies) below that point. The effect of this filter is very similar to simply removing linear trends in the data. Similarly, no lowpass filtering is applied, as there is evidence (Feinberg et al., 2010) that valid and useful neuronal-related resting-state signal is present up to at least 0.2 Hz, and possibly even up to 0.5 Hz (albeit potentially dominated by thermal noise, depending on SNR). [...]
+
+> For HCP data, we implemented the following overall approach. First, apply unaggressive temporal highpass filtering as described above. Next, ICA is run using MELODIC with automatic dimensionality estimation (MELODIC estimates how many components the given quality and quantity of data will support being separated from each other); this dimensionality is limited to a maximum of 250. These components are fed into FIX, which classifies components into “good” vs. “bad”. Bad components are then removed from the data. All of this is run using the volumetric data, rather than the grayordinate version of the data, because many artefacts are inherently 3D and do not respect tissue boundaries. The same set of artefactual processes is then removed from the (already created) grayordinates version of the data, by first applying the same highpass temporal filtering, and then regressing the bad components' timeseries out. For both volume and surface cleanup, the cleanup is done in a “non-aggressive” manner — both the good and bad component timeseries are regressed into the data, and then the resulting bad spatial maps are multiplied by the associated timeseries and subtracted from the original dataset. Thus, in this non-aggressive approach, only the unique variance associated with the bad components is removed from the data. Applying “aggressive” cleanup means removing all variance associated with the bad components, and not just the unique part, relative to non-artefact component timeseries. We have taken the more conservative non-aggressive approach to avoid removing variance of interest from the data, with the understanding that our cleanup will be less effective for more global types of noise whose variance is shared across good and bad components (this decision will be revisited in future cleanup investigations). As part of this cleanup, we also used 24 confound timeseries derived from the motion estimation (the 6 rigid-body parameter timeseries, their backwards-looking temporal derivatives, plus all 12 resulting regressors squared — Satterthwaite et al., 2013). The motion parameters have the temporal highpass filtering applied to them and are then regressed out of the data aggressively, as they are not expected to contain variance of interest.
+
+Also, I think I found the source code for this pipeline. I used these scripts to confirm various details:
+
+* [`nifti_bptf` (line 1574)](https://github.com/rordenlab/niimath/blob/master/src/core32.c) is the FSL implementation of highpass filtering which was used. A MATLAB version is available [here](https://cpb-us-w2.wpmucdn.com/sites.udel.edu/dist/7/4542/files/2016/09/fsl_temporal_filt-15sywxn.m). I myself don't understand the code, but [this wiki page](https://en.wikibooks.org/wiki/Neuroimaging_Data_Processing/Temporal_Filtering) explains that it computes "a local fit of a straight line (Gaussian-weighted within the line to give a smooth response) to remove low frequency artefacts."
+* [`functionmotionconfounds`](https://git.fmrib.ox.ac.uk/fsl/fix_temp_legacy/-/blob/master/functionmotionconfounds.m) highpass filters the realignment parameters with the `bptf` FSL command.
+* [`fix`](https://git.fmrib.ox.ac.uk/fsl/fix_temp_legacy/-/blob/master/fix) is a generic script for performing FIX on ICs.
+* [`hcp_fix`](https://git.fmrib.ox.ac.uk/fsl/fix_temp_legacy/-/blob/master/hcp_fix) performs FIX specifically for the HCP. These are the steps: read and highpass the NIFTI; use MELODIC to calculate the ICs based on the highpassed NIFTI data; run FIX on the ICs.
+* [`fix_3_clean`](https://git.fmrib.ox.ac.uk/fsl/fix/-/blob/master/fix_3_clean.m) performs the ICA-FIX pipeline. These are the steps: read and highpass the CIFTI; read the NIFTI which has been highpassed by `hcp_fix`; read and highpass the motion parameters with `functionmotionconfounds`; do 24P nuisance regression on the CIFTI and on the NIFTI; do "unaggressive cleanup" of the ICs on the CIFTI and on the NIFTI (compute nuisance regression with all ICs, but only remove the variance of the noise ICs).
+
+Other links:
+
+* There's some confusion about the meaning of the highpass filter parameter (discussed later). See [this](https://neurostars.org/t/bandpass-filtering-different-outputs-from-fsl-and-nipype-custom-function/824) discussion and [this](https://www.jiscmail.ac.uk/cgi-bin/webadmin?A2=fsl;fe2fad43.1104) one too. 
+* There's a script for [performing ICA-FIX on the HCP for multiple runs at a time](https://github.com/Washington-University/HCPpipelines/blob/master/ICAFIX/hcp_fix_multi_run).
+
+In the following section I attempt to replicate the pipeline starting from the MPP data.
+
+# Replication attempt
+
+### Highpass filter
+
+A highpass filter was applied to attenuate frequencies below ~2000 seconds (0.0005 Hertz). Since each scan has ~864 seconds, this filter is similar to a linear detrending.
+
+The MSMAll CIFTI data after highpassing the MPP data is available to us as `"../Atlas_hp_preclean.dtseries.nii"`. But, the MSMSulc data after highpassing was not saved. We are using the MSMSulc data for the paper since the HCP only include the MSMSulc data after ICA-FIX in the retest data. So we will need to do highpassing ourselves. Below is a plot comparing the 50th voxel's MSMAll+MPP timecourse before highpassing (black), after the `bptf` highpass implemented by FSL (green), and after the highpass implemented by an R version of FSL's function (blue). The blue line is over the black line meaning my R implementation of `bptf` works; you can see the green line below the blue line in the left portion of the plot and above the blue line in the right portion, showing that a positive linear trend was removed.
+
+```{r}
+cii_msmall_mpp <- read_xifti(cii_msmall_mpp_fname, brainstructures="left")$data$cortex_left[seq(100),]
+mpp_means <- apply(cii_msmall_mpp, 1, mean)
+cii_msmall_hpf2 <- t( fMRIscrub:::fsl_bptf(t(cii_msmall_mpp), 0.5*2000/.72) )
+cii_msmall_hpf2 <- cii_msmall_hpf2 + mpp_means
+cii_msmall_hpf <- read_xifti(cii_msmall_hpf_fname, brainstructures="left")$data$cortex_left[seq(100),]
+
+matplot(
+  cbind(cii_msmall_mpp[50,], cii_msmall_hpf[50,], cii_msmall_hpf2[50,]), 
+  type="l", lty=1, col=c("#22BB55", "black", "blue")
+)
+```
+
+Here is the difference between the FSL highpass and mine. Note that a difference of 10 would be a percent difference of less than 0.1%. The functions do not behave identically, but they are really similar. 
+
+```{r}
+plot(cii_msmall_hpf[50,] - cii_msmall_hpf2[50,])
+```
+
+### ICA-FIX
+
+The signal and noise ICs are saved in the file `"../rfMRI_REST1_LR_hp2000.ica/filtered_func_data.ica/melodic_mix"`. Here are three noise ICs and three signal ICs.
+
+```{r}
+ic <- read.table(ic_fname)
+icid <- as.numeric(read.table(icid_fname))
+
+matplot(
+  ic[,icid[seq(3)]], type="l", lty=1, main="Three Noise ICs", 
+  xlab="Time", ylab="Value", col=c("black", "grey", "#CC7733")
+)
+```
+
+```{r}
+matplot(
+  ic[,seq(ncol(ic))[!(seq(ncol(ic)) %in% icid)][seq(3)]], type="l", lty=1, 
+  main="Three Signal ICs", xlab="Time", ylab="Value", col=c("black", "grey", "#CC7733")
+)
+```
+
+### Unaggressive removal of ICs
+
+I tried to clean the data identically to the `fix_3_clean` script. Here is the correlation between the fiftieth voxel's data from the ICA-FIX data provided by the HCP, compared to the data from my replication attempt:
+
+```{r}
+cii_man <- read_xifti(cii_mpp_fname)$data$cortex_left[seq(100),]
+cii_ica <- read_xifti(cii_ica_fname)$data$cortex_left[seq(100),]
+```
+
+```{r fig.height=5, fig.width=5}
+# Load RPs and highpass
+rp <- as.matrix(read.table(rp_fname))
+rp <- scale(cbind(rp, rp^2))
+rp <- scale(fMRIscrub:::fsl_bptf(rp, 0.5*2000/.72))
+# In the source code it looks like no intercept is used.
+# Here, we will add one. The results are the same either way (why?).
+rp <- cbind(sqrt(1/1200), rp)
+
+# Load CIFTI and highpass
+mpp_means <- apply(cii_man, 1, mean)
+cii_man <- cii_man - mpp_means
+cii_man <- t(fMRIscrub:::fsl_bptf(t(cii_man), 0.5*2000/.72))
+cii_man <- cii_man + mpp_means
+
+# Load ICs (calculated on highpassed NIFTI)
+ic <- scale(as.matrix(read.table(ic_fname)))
+
+ica_version <- 1
+# 3 and 4 are identical. but, 1 and 2 are not.
+if (ica_version == 1) {
+  # # Version 1: sequential regression -------------------------------
+  # Regress RPs from ICs and CIFTI
+  ic <- nuisance_regression(ic, design=rp)
+  cii_man <- nuisance_regression(cii_man, design=rp)
+  # Non-aggressive removal of noise ICs from CIFTI
+  # No intercept in original version; adding one here for peace of mind.
+  # (Same result beside the center of the data.)
+  # Add a step where we add back mpp_mans
+  ic <- cbind(ic, 1); icid <- c(icid, length(icid)+1)
+  # betaICA = pinv(ICA,1e-6) * cts;                         % beta for ICA (good *and* bad)
+  # cts = cts - (ICA(:,DDremove) * betaICA(DDremove,:));    % cleanup
+  beta <- pracma::pinv(ic) %*% t(cii_man)
+  cii_man <- t(t(cii_man) - ic[,icid] %*% beta[icid,]) + mpp_means
+} else if (ica_version==2) {
+  # Version 2: single regression -----------------------------------
+  # This actually does not yield the same results...
+  design <- cbind(ic, rp)
+  design_noise <- c(icid, ncol(ic)+seq(ncol(rp)))
+  beta <- pracma::pinv(design) %*% t(cii_man)
+  cii_man <- t(t(cii_man) - design[,design_noise] %*% beta[design_noise,])
+} else if (ica_version==3) {
+  ic <- nuisance_regression(ic, design=rp)
+  cii_man <- nuisance_regression(cii_man, design=rp)
+  cii_man <- nuisance_regression(cii_man, ic[,icid])
+} else if (ica_version==4) {
+  design <- cbind(ic[,icid], rp)
+  cii_man <- nuisance_regression(cii_man, design)
+}
+
+cor(cii_ica[50,], cii_man[50,])
+```
+
+And a plot comparing the values:
+
+```{r}
+plot(
+  cii_ica[50,], cii_man[50,], 
+  main="CIFTI data", xlab="Original ICA-FIX file", ylab="Replication Attempt",
+  xlim=c(11500, 13500), ylim=c(11500, 13500)
+)
+abline(a=0,b=1,col="blue", lty=2)
+```
+
+There's a variation of ~60 which is ~0.5% of the range of the data. Not bad. Also, there are no clear trends with respect to time.
+
+```{r}
+plot(
+  seq(1200), cii_ica[50,] - cii_man[50,], 
+  main="CIFTI data", xlab="Timepoint", ylab="Difference in ICA-FIX implementations"
+)
+abline(a=0,b=0,col="blue", lty=2)
+```
+
+Note that we cannot replicate the results using simultaneous regression of the 24RPs instead of sequential regression, because ICA-FIX by default uses the soft regression.
+
+```{r eval=FALSE}
+# Confirm that `nuisance_regression` and `pracma::pinv` work
+ic <- scale(as.matrix(read.table(ic_fname)))
+ic2 <- nuisance_regression(ic, design=rp)
+ic3 <- ic - rp %*% pracma::pinv(rp) %*% ic
+testthat::expect_equal(matrix(ic2), matrix(ic3))
+```

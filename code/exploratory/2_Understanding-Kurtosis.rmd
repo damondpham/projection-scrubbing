@@ -1,0 +1,192 @@
+---
+title: "Understanding Kurtosis-based PC selection"
+author: "Damon Pham"
+date: "1/20/2021"
+output: html_document
+---
+
+# Setup
+
+```{r}
+source("0_SharedCode.R")
+stopifnot(SharedCode_version == c(6,1))
+
+library(ggplot2)
+```
+
+```{r}
+# Parameters ---------------------------------
+nCC <- c(2, 5)[1]
+withCblm <- c(TRUE, FALSE)[1]
+scaleAfterNReg <- c(TRUE, FALSE)[1]
+baseName <- paste0("CC", nCC, "_", ifelse(withCblm, "withCblm", "noCblm"), ifelse(scaleAfterNReg, "ScaleAfterNReg", ""))
+before_FIX <- TRUE
+
+# Directories --------------------------------
+fd_dir <- file.path(dir_scrubMeas, "FD")
+lev_dir <- file.path(dir_scrubMeas, "Lev", baseName)
+dvars_dir <- file.path(dir_scrubMeas, "DVARS", baseName)
+
+# Parcellation -------------------------------
+ParcMat <- readRDS(file.path(dir_SchaeferParc, "ParcMat.rds")) # 3_FC_Baselines
+nParc <- ncol(ParcMat)
+
+# Misc ---------------------------------------
+# Would need to change `clever` code if scaling before NReg
+stopifnot(scaleAfterNReg)
+cor_mask <- upper.tri(diag(nParc))
+```
+
+Select first subject-scan 
+
+```{r}
+visit <- 1
+test <- 1
+acquisition <- "LR"
+subject <- subjects[1]
+suffix <- paste0(subject, "_v", visit + (!test)*2, "_", acquisition)
+```
+
+We will need to run `clever` again on this subject-scan because we want the directions (V matrix of PCA; S matrix of ICA), but these were deleted from the saved results to reduce memory use. 
+
+```{r}
+# CIFTI
+fname_prefix <- paste0("rfMRI_REST", visit, "_", acquisition)
+data_dir <- file.path(subject, "MNINonLinear", "Results", fname_prefix)
+fnames <- list(
+  CIFTI = file.path(data_dir, paste0(fname_prefix, "_Atlas.dtseries.nii"))
+)
+# Read CIFTI. Drop first 15 frames. Parcellate.
+# (Is equivalent to parcellating after nuisance regression.)
+fname_cii <- file.path(ifelse(test, dir_HCP_test, dir_HCP_retest), fnames$CIFTI)
+
+lev_full_fname <- file.path(dir_plots, "firstSubjectScan_fullLev.rds")
+if (!file.exists(lev_full_fname)) {
+  cii <- t(do.call(rbind, read_cifti(fname_cii, brainstructures="all")$data))[seq(nDrop+1, hcp_T),] 
+  # LEVERAGE --------------------------------------------------------------
+  # Remove PCATF + above-average variance, which would require too many PCs.
+  projection_PESEL <- c("PCA", "PCA_kurt", "PCATF", "PCATF_kurt", "ICA", "ICA_kurt")
+  projection_avgvar <- c("PCA2", "PCA2_kurt", "ICA2", "ICA2_kurt")
+  # clever ----------------------------------------------------------------
+  lev <- fMRIscrub:::clever_multi(
+    cii, projection=c(projection_PESEL, projection_avgvar), var_detrend=4,
+    nuisance = NULL, get_dirs=TRUE, get_outliers=FALSE, verbose=TRUE
+  )
+  saveRDS(lev, lev_full_fname)
+}
+lev <- readRDS(lev_full_fname)
+```
+
+```{r fig.height=5, fig.width=8.5}
+stopifnot(sum(lev$ICA$highkurt_vdt) >= 3)
+ICs_lowkurt <- which(!lev$ICA$highkurt_vdt)[seq(3)]
+ICs_highkurt <- rev(order(apply(lev$ICA$M_vdt, 2, e1071::kurtosis, type=1)))[seq(3)]
+
+df_k <- data.frame(
+  Value = c(
+    as.vector(lev$ICA$M_vdt[,ICs_lowkurt]), 
+    as.vector(lev$ICA$M_vdt[,ICs_highkurt])
+  ), 
+  col = factor(paste(c("First", "Second", "Third")[rep(rep(seq(3), each=hcp_T-nDrop), 2)], "IC")),
+  Timepoint = rep(rep(seq(hcp_T-nDrop), 3), 2),
+  kurt = factor(rep(c("Low kurtosis", "High kurtosis"), each=(hcp_T-nDrop)*3))
+)
+
+df_kl <- rbind(
+  data.frame(Timepoint=which(lev$measure$ICA > median(lev$measure$ICA)*4), kurt="Low kurtosis"),
+  data.frame(Timepoint=which(lev$measure$ICA_kurt > median(lev$measure$ICA_kurt)*4), kurt="High kurtosis")
+)
+
+df_kv <- rbind(
+  data.frame(
+    KurtVal=apply(lev$ICA$M_vdt[,ICs_lowkurt], 2, e1071::kurtosis, type=1), 
+    col=factor(paste(c("First", "Second", "Third"), "IC")), kurt="Low kurtosis"
+  ),
+  data.frame(
+    KurtVal=apply(lev$ICA$M_vdt[,ICs_highkurt], 2, e1071::kurtosis, type=1), 
+    col=factor(paste(c("First", "Second", "Third"), "IC")), kurt="High kurtosis"
+  )
+)
+df_kv$KurtVal <- paste("Kurt:", round(df_kv$KurtVal, 2))
+
+plt_k <- ggplot(df_k) + 
+  geom_vline(data=df_kl, aes(xintercept=Timepoint), linetype="dotted", color="#3366FF") +
+  geom_text(data=df_kv, aes(x=950, y=.5, label=KurtVal), color="blue") +
+  geom_line(aes(x=Timepoint, y=Value)) + facet_grid(kurt~col) + 
+  cowplot::theme_minimal_grid() + 
+  cowplot::panel_border(size=3) + 
+  scale_x_continuous(breaks=c(0, 300, 600, 900, 1185)) +
+  coord_cartesian(xlim=c(0,1200), ylim=c(-2, 2), expand=FALSE) + 
+  theme(panel.spacing.x = unit(1.7, "lines"), panel.spacing.y = unit(0, "lines")) +
+  xlab("Timepoint") + ylab("Value")
+
+cowplot::plot_grid(
+  cowplot::ggdraw() + cowplot::draw_label("High-kurtosis ICs tend to contain outlier information", fontface="bold", x=0, hjust=0), 
+  plt_k, rel_heights=c(.1, 1), ncol=1
+)
+ggsave(file.path(dir_plots, "Kurtosis.png"), height=5, width=8.5)
+```
+
+```{r}
+cii <- read_cifti(fname_cii, brainstructures="all")
+cii <- select_xifti(cii, 1)
+
+for (ii in seq(3)) {
+  cii <- newdata_xifti(cii, lev$ICA$S[,ICs_highkurt[ii],drop=FALSE])
+  plot(cii, fname=file.path(dir_plots, "lev_img/ICA", paste0("kurt_high_", ii)), title=paste("High-kurtosis IC", ii))
+  plot(cii, fname=file.path(dir_plots, "lev_img/ICA", paste0("kurt_high_", ii, "_z4.png")), title=paste("High-kurtosis IC", ii), zlim=c(-4, 0, 4))
+  #view_xifti_volume(cii)
+  
+  cii <- newdata_xifti(cii, lev$ICA$S[,ICs_lowkurt[ii],drop=FALSE])
+  plot(cii, fname=file.path(dir_plots, "lev_img/ICA", paste0("kurt_low_", ii)), title=paste("Low-kurtosis IC", ii))
+  plot(cii, fname=file.path(dir_plots, "lev_img/ICA", paste0("kurt_low_", ii, "_z4.png")), title=paste("Low-kurtosis IC", ii), zlim=c(-4, 0, 4))
+}
+
+t_out <- which(lev$measure$ICA_kurt > 10*median(lev$measure$ICA_kurt))
+for (tt in t_out) {
+  cii <- newdata_xifti(cii, lev$ICA$S[,lev$ICA$highkurt_vdt,drop=FALSE] %*% t(lev$ICA$M[tt,lev$ICA$highkurt_vdt,drop=FALSE]))
+  plot(cii, fname=file.path(dir_plots, "lev_img/ICA", paste0("lev_out_", tt, "_cortex.png")), title=paste0("Outlier lev image, t=", tt))
+  #view_xifti_volume(cii)
+}
+
+t_nout <- which(lev$measure$ICA_kurt < 2*median(lev$measure$ICA_kurt))[seq(5)*100]
+for (tt in t_nout) {
+  cii <- newdata_xifti(cii, lev$ICA$S[,lev$ICA$highkurt_vdt,drop=FALSE] %*% t(lev$ICA$M[tt,lev$ICA$highkurt_vdt,drop=FALSE]))
+  plot(cii, fname=file.path(dir_plots, "lev_img/ICA", paste0("lev_nout_", tt, "_cortex.png")), title=paste0("Non-outlier lev image, t=", tt))
+  #view_xifti_volume(cii)
+}
+
+# PCA ------------------------------------------------------------------------------
+
+stopifnot(sum(lev$PCA$highkurt_vdt) >= 3)
+PCs_lowkurt <- which(!lev$PCA$highkurt_vdt)[seq(3)]
+PCs_highkurt <- rev(order(apply(lev$PCA$U_vdt, 2, e1071::kurtosis, type=1)))[seq(3)]
+
+cii <- read_cifti(fname_cii, brainstructures="all")
+cii <- select_xifti(cii, 1)
+
+for (ii in seq(3)) {
+  cii <- newdata_xifti(cii, lev$PCA$V[,PCs_highkurt[ii],drop=FALSE])
+  plot(cii, fname=file.path(dir_plots, "lev_img/PCA", paste0("kurt_high_", ii)), title=paste("High-kurtosis PC", ii))
+  plot(cii, fname=file.path(dir_plots, "lev_img/PCA", paste0("kurt_high_", ii, "_z4.png")), title=paste("High-kurtosis PC", ii), zlim=c(-.006, 0, .006))
+  #view_xifti_volume(cii)
+  
+  cii <- newdata_xifti(cii, lev$PCA$V[,PCs_lowkurt[ii],drop=FALSE])
+  plot(cii, fname=file.path(dir_plots, "lev_img/PCA", paste0("kurt_low_", ii)), title=paste("Low-kurtosis PC", ii))
+  plot(cii, fname=file.path(dir_plots, "lev_img/PCA", paste0("kurt_low_", ii, "_z4.png")), title=paste("Low-kurtosis PC", ii), zlim=c(-.006, 0, .006))
+}
+
+t_out <- which(lev$measure$PCA_kurt > 10*median(lev$measure$PCA_kurt))
+for (tt in t_out) {
+  cii <- newdata_xifti(cii, lev$PCA$V[,lev$PCA$highkurt_vdt,drop=FALSE] %*% t(lev$PCA$U[tt,lev$PCA$highkurt_vdt,drop=FALSE]))
+  plot(cii, fname=file.path(dir_plots, "lev_img/PCA", paste0("lev_out_", tt, "_cortex.png")), title=paste0("Outlier lev image, t=", tt))
+  #view_xifti_volume(cii)
+}
+
+t_nout <- which(lev$measure$PCA_kurt < 2*median(lev$measure$PCA_kurt))[seq(5)*100]
+for (tt in t_nout) {
+  cii <- newdata_xifti(cii, lev$PCA$V[,lev$PCA$highkurt_vdt,drop=FALSE] %*% t(lev$PCA$U[tt,lev$PCA$highkurt_vdt,drop=FALSE]))
+  plot(cii, fname=file.path(dir_plots, "lev_img/PCA", paste0("lev_nout_", tt, "_cortex.png")), title=paste0("Non-outlier lev image, t=", tt))
+  #view_xifti_volume(cii)
+}
+```

@@ -1,0 +1,37 @@
+---
+title: "View the Parcellation"
+author: "Damon Pham"
+date: "10/8/2020"
+output: html_document
+---
+
+Parcellation info: https://github.com/ThomasYeoLab/CBIG/tree/master/stable_projects/brain_parcellation/Schaefer2018_LocalGlobal (Version 3)
+
+Parcellation data download source: https://github.com/ThomasYeoLab/CBIG/tree/master/stable_projects/brain_parcellation/Schaefer2018_LocalGlobal/Parcellations/HCP/fslr32k/cifti
+
+```{r}
+setwd("../../code/analysis")
+source("0_SharedCode.R")
+library(knitr)
+```
+
+We can compare the `ciftiTools` renderings with the images the authors provided at the download page.
+
+```{r}
+cii1 <- read_cifti(parc_cii_fname)
+cii1$meta$cifti$names <- names(cii1$meta$cifti$labels) <- "Kong 2022"
+```
+
+```{r}
+library(rgl)
+rgl::setupKnitr()
+
+# Sometimes the first OpenGL window does not render properly.
+rgl::rgl.open(); rgl::rgl.close()
+```
+
+```{r, fig.cap="Kong 2022, 400 Parcels", rgl=TRUE, format="png", fig.height=3.8, fig.width=5}
+plot(cii1, color_mode="qualitative", border="black")
+```
+
+![Schaefer 400-Yeo 7 Correspondence](../../data/Parc/Schaefer2018_400parcel_parcellation_Kong2022_17_network_fslr32k.jpg)

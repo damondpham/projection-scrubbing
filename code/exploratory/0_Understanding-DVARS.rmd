@@ -1,0 +1,105 @@
+---
+title: "Understanding Various DVARS Implementations"
+author: "Damon Pham"
+date: "1/1/2021"
+output: html_document
+---
+
+```{r}
+source("../analysis/0_SharedCode.R")
+stopifnot(SharedCode_version == c(10,0))
+```
+
+DVARS is scale-dependent, so when replicating the DVARS measurement from various papers it is important to understand how the data were normalized. 
+
+# Power, 2012
+
+DVARS was measured after the following pre-processing:
+
+* Mode 1000 normalization (mode across all timepoints & voxels)
+* Resampling (3mm voxels)
+* Spatial smoothing (6 mm FWHM)
+* Temporal bandpassing (.009 < f <.08 Hz)
+* Multiple regression with mean WM, mean CSF, the GS, the RPs and all their derivatives (18 total regressors)
+
+They removed frames with FD > 0.5 mm OR DVARS > 5. After, they also removed frames one backward and two forward to account for temporal smoothing.
+
+# Power, 2014
+
+In their final analysis, DVARS was measured after the following pre-processing:
+
+* Mode 1000 normalization (mode across all timepoints & voxels)
+
+They removed frames with FD > 0.2 mm OR DVARS > 20. After, sequences of frames shorter than 5 were removed too. 
+
+In their final analysis, these steps were done after measuring DVARS.
+
+* Demean and detrend (?)
+* Multiple regression (?)
+* Temporal bandpassing (.009 < f <.08 Hz)
+* Multiple regression with e.g. mean WM, mean CSF, the GS, the RPs, the squared RPs, and all their derivatives (30 total regressors)
+* Spatial smoothing
+
+(Prior to the final analysis, they tried measuring DVARS after these other steps, but decided against it since they thought that decreases in DVARS were cosmetic and that those frames that decreased in DVARS should still be removed.)
+
+# Burgess, 2016
+
+For the HCP MPP data, they did not do any normalization beyond what the HCP already implements.
+
+Note that the HCP normalizes scans to a grand mean of 10,000. (Is that across the in-mask NIFTI voxels?)
+
+DVARS are reported after subtracting the median value. They used a cutoff of DVARS > 4.9 (units above the median). 
+
+We can replicate their results: see Supplementary Figure S3
+
+```{r}
+visit <- 1; test <- TRUE; acquisition <- "RL"; subject <- 159340
+fname_prefix <- paste0("rfMRI_REST", visit, "_", acquisition)
+data_dir <- file.path(subject, "MNINonLinear", "Results", fname_prefix)
+fnames <- list(
+  CIFTI = file.path(data_dir, paste0(fname_prefix, "_Atlas.dtseries.nii"))
+)
+cii <- read_xifti(file.path(dir_HCP_test, fnames$CIFTI), flat=TRUE)
+dv <- DVARS(t(cii), normalize=FALSE)
+dv2 <- dv$measure$DVARS - median(dv$measure$DVARS)
+plot(dv2[seq(351, 750)], type="l"); abline(a=4.9,b=0)
+```
+
+# Satterthwaite, 2013
+
+They measured DVARS after the following pre-processing:
+
+* Realignment
+* Spatial smoothing
+* Grand mean scaling
+
+They tried two cutoffs: first, FD > 0.25 mm. Second, FD > 0.25 mm OR 1.4% DVARS 1.4%. These cutoffs are two standard deviations above the group average. 
+
+Scrubbing was implemented as spike regressors within a 36 RP confound regression (mean WM, mean CSF, the GS, their squares, their derivatives, and their squared derivatives). Temporal bandpassing (.01 - .08 Hz) was performed after.
+
+They also tried another round of scrubbing after temporal bandpassing, using +2 SD cutoffs again (FD cutoff was unchanged, but the new DVARS cutoff was 0.3%). They did not find additional benefit.
+
+# Afyouni and Nichols, 2018
+
+For the HCP, they measured DVARS after diving values by 100 (to yield a grand mean of 100) and demeaning each voxel. 
+
+They used a cutoff of Delta-percent DVARS > 5% AND z-score DVARS > one-sided level 5% Bonferroni significance threshold.
+
+We can reproduce the first few rows of Table S4 like so (the numbers are slightly different but very similar):
+
+```{r}
+visit <- 1; test <- TRUE; acquisition <- "LR"; subject <- 118730
+fname_prefix <- paste0("rfMRI_REST", visit, "_", acquisition)
+data_dir <- file.path(subject, "MNINonLinear", "Results", fname_prefix)
+fnames <- list(
+  NIFTI = file.path(data_dir, paste0(fname_prefix, ".nii.gz"))
+)
+
+nii <- RNifti::readNifti(file.path(dir_HCP_test, fnames$NIFTI))
+nii2 <- matrix(nii, ncol=dim(nii)[4])
+nii2 <- nii2[apply(nii2[,c(1,100,200)], 1, sum) > 0,]
+Y <- nii2 / 100
+Y <- Y - apply(Y, 1, mean)
+dv <- DVARS(t(Y), normalize = FALSE)
+dv$measure[c(seq(7,10), 37, 38, 269, 270),]
+```

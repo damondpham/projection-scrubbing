@@ -1,0 +1,117 @@
+---
+title: "Which Retest Subjects Have all the Data we Need?"
+author: "Damon Pham"
+date: "01/01/2021"
+output: html_document
+---
+
+Three of the 45 subjects with retest data did not have all the files needed, leaving 42 subjects with complete data. 
+
+```{r}
+dir_data_test <- "/N/dcwan/projects/hcp"
+dir_data_retest <- "/N/u/ddpham/Carbonate/Desktop/Data/HCP_Retest"
+dir_archive_retest <- "/N/dcwan/projects/hcp/retest"
+
+subjects <- list.files("/N/dcwan/projects/hcp")
+# Only use retest subjects
+subjects <- c(
+  103818, 187547,
+  105923, 192439,
+  111312, 194140,
+  114823, 195041,
+  115320, 200109,
+  122317, 200614,
+  125525, 204521,
+  130518, 250427,
+  135528, 287248,
+  137128, 341834,
+  139839, 433839,
+  143325, 562345,
+  144226, 599671,
+  146129, 601127,
+  149337, 627549,
+  149741, 660951,
+  151526, 662551,
+  158035, 783462,
+  169343, 859671,
+  172332, 861456,
+  175439, 877168,
+  177746, 917255,
+  185442
+)
+omit_subjects <- c(
+  627549, # does not have retest visit 2 zip files
+  341834, # does not have retest FIX files in the zip (REST1 RL)
+  143325  # retest MPP CIFTI for REST2_RL is truncated to 939 timepoints
+)
+
+library(ciftiTools)
+ciftiTools.setOption("wb_path", "~/Desktop/workbench")
+```
+
+```{r}
+iters <- expand.grid(visit=seq(2), test=c(TRUE, FALSE), acquisition=c("LR", "RL"), subject=subjects)
+
+last_subject <- NA
+for (ii in seq(nrow(iters))) {
+  visit <- iters[ii, "visit"]
+  test <- iters[ii, "test"]
+  acquisition <- as.character(iters[ii, "acquisition"])
+  subject <- iters[ii, "subject"]
+  fname_prefix <- paste0("rfMRI_REST", visit, "_", acquisition)
+  if (!identical(subject, last_subject)) {
+    last_subject <- subject
+    cat(last_subject, "\n")
+  }
+  
+  data_dir <- file.path(subject, "MNINonLinear", "Results", fname_prefix)
+  fnames <- list(
+    RP = file.path(data_dir, "Movement_Regressors.txt"),
+    CIFTI = file.path(data_dir, paste0(fname_prefix, "_Atlas.dtseries.nii")),
+    CIFTI_FIX = file.path(data_dir, paste0(fname_prefix, "_Atlas_hp2000_clean.dtseries.nii")),
+    FIX_IC = file.path(data_dir, paste0(fname_prefix, "_hp2000.ica"), "filtered_func_data.ica/melodic_mix"),
+    FIX_labs = file.path(data_dir, paste0(fname_prefix, "_hp2000.ica"), "Noise.txt"),
+    NIFTI = file.path(data_dir, paste0(fname_prefix, ".nii.gz")),
+    NIFTI_labs = file.path(data_dir, "../../ROIs/Atlas_wmparc.2.nii.gz")
+  )
+
+  # Test files -----------------------------------------------------------------------
+  if (test) {
+    fnames <- lapply(fnames, function(x){file.path(dir_data_test, x)})
+    f_exists <- vapply(fnames, file.exists, FALSE)
+    if (!all(f_exists)) { 
+      warning("\tThese test files don't exist for ", fname_prefix, ": ", paste0(names(f_exists)[!f_exists], collapse=", ", ".\n"))
+    }
+    
+    #Not ever a problem
+    #cii <- ciftiTools::read_xifti(fnames$CIFTI, flat=TRUE)
+    #if (ncol(cii) != 1200) { warning("\tThe test CIFTI was truncated for ", fname_prefix, ".\n") }
+  
+  # Retest files ----------------------------------------------------------------------
+  } else {
+    data_zip_MPP <- file.path(
+      dir_archive_retest, paste0(subject, "_3T_rfMRI_REST", visit, "_preproc.zip")
+    )
+    data_zip_FIX <- file.path(
+      dir_archive_retest, paste0(subject, "_3T_rfMRI_REST", visit, "_fixextended.zip")
+    )
+    
+    if (!file.exists(data_zip_MPP)) { warning("\tThe MPP retest zip doesn't exist for ", fname_prefix, ".\n"); next }
+    if (!file.exists(data_zip_FIX)) { warning("\tThe FIX retest zip doesn't exist for ", fname_prefix, ".\n"); next }
+    
+    data_inzip_all <- c(unzip(data_zip_MPP, list=TRUE)$Name, unzip(data_zip_FIX, list=TRUE)$Name)
+    
+    f_exists <- vapply(fnames[names(fnames) != "NIFTI_labs"], function(x){x %in% data_inzip_all}, FALSE)
+    if (!all(f_exists)) { 
+      warning("\tThese retest files don't exist for ", fname_prefix, ": ", paste0(names(f_exists)[!f_exists], collapse=", "), ".\n")
+      next
+    }    
+
+    cmd <- paste("unzip", data_zip_MPP, fnames$CIFTI, "-d", dir_data_retest)
+    system(cmd)
+    cii <- ciftiTools::read_xifti(file.path(dir_data_retest, fnames$CIFTI), flat=TRUE)
+    if (ncol(cii) != 1200) { warning("\tThe test CIFTI was truncated for ", fname_prefix, ".\n") }
+    unlink(file.path(dir_data_retest, fnames$CIFTI))
+  }
+}
+```

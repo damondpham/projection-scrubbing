@@ -1,0 +1,3561 @@
+# Load data (old)
+
+```{r eval=FALSE}
+a <- c(
+  "Baselines.rds", 
+  "CC2MP6.rds"
+)
+a <- list(
+  meanFC = do.call(cbind, lapply(a, function(x){readRDS(file.path(dir_analysis, "meanFC", x))$meanFC})),
+  meanFCz = do.call(cbind, lapply(a, function(x){readRDS(file.path(dir_analysis, "meanFC", x))$meanFCz})),
+  ICC = do.call(cbind, lapply(a, function(x){readRDS(file.path(dir_analysis, "reliability", x))})),
+  nScrub = abind::abind(
+    readRDS(file.path(dir_FC, "nScrub_CC2MP6_.rds")),
+    along=3
+  )
+)
+
+a$meanScrub <- apply(a$nScrub, 3, mean)
+a$meanTimeRem <- .72 * (1185 - a$meanScrub)
+trmax <- .72*1185
+trbreaks <- c(.5, .75, .9, .99, 1)
+
+methods <- colnames(a$meanFC)
+mmethods <- c(
+  # MPP, DCT4, CC2+6P baseline
+  MPP = "None__DCT0",
+  DCT4 = "None__DCT4",
+  `CC2+6P` = "MPCC2__06P_DCT4",
+  # Scrubbing
+  PCAlev = "Lev___PCA_kurt___4",
+  ICAlev = "Lev___ICA_kurt___4",
+  `FusedPCAlev` = "Lev___fusedPCA_kurt___4",
+  DVARS = "DVARSdual",
+  FD = "FD___0.4",
+  # Alternative baselines
+  `ICA-FIX` = "HCP__ICA-FIX",
+  `2P` = "CSF-WM__DCT4",
+  `9P` = "9P__whole_DCT4",
+  `36P` = "36P__whole_DCT4",
+  CC2 = "CompCor__PC02_withCblm_DCT4",
+  CC5 = "CompCor__PC05_withCblm_DCT4"
+)
+mmethods2 <- mmethods[seq(4,8)]
+mmethods3 <- mmethods[c(2, seq(11,14))]
+mmethods4 <- c(Base="Base", mmethods2)
+# q <- a$nScrub[,,mmethods2]
+```
+
+```{r eval=FALSE}
+b <- c("CC2MP6_400.rds", "CC2MP6_800.rds", "CC2MP6.rds")
+b <- list(
+  meanFC = lapply(b, function(x){readRDS(file.path(dir_analysis, "meanFC", x))$meanFC}),
+  meanFCz = lapply(b, function(x){readRDS(file.path(dir_analysis, "meanFC", x))$meanFCz}),
+  ICC = lapply(b, function(x){readRDS(file.path(dir_analysis, "reliability", x))})
+)
+b2 <- as.data.frame(
+  round(do.call(cbind, lapply(b$ICC, function(x){colMeans(x)[c("Base", mmethods2)]})), 3)
+)
+colnames(b2) <- c("t=400", "t=800", "t=1185")
+b2
+```
+
+### ICC and scrub amount
+
+```{r}
+dv_icc <- mean(a$ICC[,"DVARSdual"] - a$ICC[,"Base"])
+dv_ns <- mean(a$nScrub[,,"DVARSdual"])
+
+m_lev_gg <- m_lev
+m_lev_gg$cICCmean <- apply(a$ICC[,m_lev_gg$full] - a$ICC[,mmethods["CC2+6P"]], 2, mean)
+m_lev_gg$nScrub <- a$meanScrub[m_lev_gg$full]
+m_lev_gg$nScrub.25 <- apply(a$nScrub[,,m_lev_gg$full], 3, quantile, .25)
+m_lev_gg$nScrub.75 <- apply(a$nScrub[,,m_lev_gg$full], 3, quantile, .75)
+m_lev_gg <- subset(m_lev_gg, kurt)
+m_lev_gg$name <- factor(m_lev_gg$name, levels=c("ICA2", "ICA", "PCA2", "PCA", "fusedPCA", "fusedPCA2"), labels=c("ICA2", "ICA", "PCA2", "PCA", "FusedPCA", "FusedPCA2"))
+m_lev_gg <- subset(m_lev_gg, name %in% c("ICA", "PCA", "FusedPCA"))
+
+nsbreaks <- c(.5, .75, .9, .99, 1)
+cut_lim <- 8
+
+m_lev_gg <- subset(m_lev_gg, cut > 1)
+m_lev_gg <- subset(m_lev_gg, cut <= cut_lim)
+
+colvals <- c(myColors[c("ICAlev", "PCAlev", "FusedPCAlev")])
+names(colvals) <- c("ICA", "PCA", "FusedPCA")
+
+p1 <- ggplot(subset(m_lev_gg, (cut %% 1) == 0), aes(x=cut, y=cICCmean, color=name)) + 
+  #geom_vline(xintercept=3, color="black", size=1) +
+  geom_hline(yintercept=dv_icc, color=myColors["DVARS"]) +
+  geom_vline(xintercept=4, size=.8, color="#cccccc") +
+  geom_hline(yintercept=0, linetype="dashed", color="black") +
+  geom_line(size=.8) +
+  geom_point(data=subset(m_lev_gg, (cut %% 1) == 0), size=2.2) +
+  scale_color_manual(values=colvals) +
+  cowplot::theme_cowplot() +
+  scale_y_continuous(breaks=c(-.005, 0, .01)) +
+  scale_x_continuous(breaks=c(2,4,6,8,10)) +
+  coord_cartesian(xlim=c(1.2, cut_lim + .1), ylim=c(-.005, .01)) +
+  xlab("Median leverage cutoff") +
+  ylab("ICC improvement") + #Mean
+  guides(color=guide_legend(nrow=1, title="Projection")) +
+  theme(legend.position="bottom")
+
+pleg <- cowplot::get_legend(p1)
+p1 <- p1 + theme(legend.position="none")
+
+logjust <- 100
+
+p2 <- ggplot(subset(m_lev_gg, (cut %% 1) == 0), aes(x=cut, y= logjust + nScrub, color=name)) + 
+  geom_vline(xintercept=4, size=.8, color="#cccccc") +
+  geom_hline(yintercept=logjust, linetype="dashed", color="black") +
+  geom_hline(
+    yintercept=logjust + dv_ns, color=myColors["DVARS"]
+  ) +
+  # geom_ribbon(aes(ymin=logjust+nScrub.25, ymax=logjust+nScrub.75, fill=name), size=.4, alpha=.5) +
+  geom_line(size=.8) +
+  geom_point(data=subset(m_lev_gg, (cut %% 1) == 0), size=2.2) +
+  scale_color_manual(values=colvals) +
+  scale_fill_manual(values=colvals) +
+  cowplot::theme_cowplot() +
+  scale_y_continuous(
+    breaks=logjust + 1185 * c(0, .01, .05, .1, .5), 
+    labels=paste0(" ", c(0, 1, 5, 10, 50), "%"),
+    trans="log"
+  ) +
+  scale_x_continuous(breaks=c(2,4,6,8,10)) +
+  coord_cartesian(xlim=c(1.2, cut_lim + .1), ylim=logjust + 1185 * c(0, .5)) +
+  xlab("Median leverage cutoff") +
+  ylab("% frames removed") + #Mean
+  guides(color=guide_legend(nrow=1, title="Projection")) +
+  theme(legend.position="none")
+
+#pdf(plt_fmt(paste0("Levcut_ICC.pdf")), height=4, width=3.2)
+#p1
+#p2
+
+pdf(plt_fmt(paste0("Levcut_ICC_comp.pdf")), height=6, width=3.5)
+cowplot::plot_grid(p1, p2, ncol=1, align="hv", axis="tblr")
+plot_grid(NULL, pleg, ncol=1)
+dev.off()
+
+plev1 <- p1; plev2 <- p2
+```
+
+```{r}
+q <- methods[grepl("FD__", methods) & (!grepl("DVARS", methods))]
+FD_cICC <- a$ICC[,q] - a$ICC[,mmethods["CC2+6P"]]
+q <- data.frame(
+  cut = as.numeric(gsub("FD___", "", q)),
+  cICCmean = apply(FD_cICC, 2, mean),
+  cICCq.1 = apply(FD_cICC, 2, quantile, .1),
+  cICCq.9 = apply(FD_cICC, 2, quantile, .9),
+  nScrub = a$meanScrub[q],
+  nScrub.1 = apply(a$nScrub[,,q], 3, quantile, .1),
+  nScrub.9 = apply(a$nScrub[,,q], 3, quantile, .9)
+)
+rm(FD_cICC)
+```
+
+### ICC and scrub amount
+
+```{r}
+nsbreaks <- c(.5, .75, .9, .99, 1)
+
+p1 <- ggplot(subset(q, (cut*10) %% 1 == 0), aes(x=cut, y=cICCmean)) + 
+  geom_hline(yintercept=dv_icc, color=myColors["DVARS"]) +
+  geom_vline(xintercept=c(.4), size=.8, color="#cccccc") +
+  geom_hline(yintercept=0, linetype="dashed", color="black") +
+  geom_line(size=0.8, color=myColors["FD"]) +
+  geom_point(data=subset(q, (cut*10) %% 1 == 0), size=2.2, color=myColors["FD"]) +
+  #scale_color_manual(values=color_fd, guide=FALSE) +
+  cowplot::theme_cowplot() +
+  scale_y_continuous(breaks=c(-.005, 0, .01)) +
+  scale_x_continuous(breaks=c(2,4,6,8,10)/10) +
+  coord_cartesian(xlim=c(.18, 1.01), ylim=c(-.005, .01)) +
+  xlab("FD cutoff") +
+  ylab("ICC improvement") + #Mean
+  guides(color=guide_legend(nrow=1, title="Method")) +
+  theme(legend.position="none")
+
+pleg <- cowplot::get_legend(p1)
+p1 <- p1 + theme(legend.position="none")
+
+logjust <- 100
+
+p2 <- ggplot(subset(q, (cut*10) %% 1 == 0), aes(x=cut, y= logjust + nScrub)) + 
+  geom_hline(yintercept=logjust + dv_ns, color=myColors["DVARS"]) +
+  geom_vline(xintercept=c(.4), size=.8, color="#cccccc") +
+  geom_hline(yintercept=logjust, linetype="dashed", color="black") +
+  # geom_ribbon(aes(ymin=logjust+nScrub.1, ymax=logjust+nScrub.9, fill=myColors["FD"]), size=.4, alpha=.5) +
+  geom_line(size=0.8, color=myColors["FD"]) +
+  geom_point(data=subset(q, (cut*10) %% 1 == 0), size=2.2, color=myColors["FD"]) +
+  #scale_color_manual(values=color_fd, guide=FALSE) +
+  cowplot::theme_cowplot() +
+  scale_y_continuous(
+    breaks=logjust + 1185 * c(0, .01, .05, .1, .5), 
+    labels=paste0(" ", c(0, 1, 5, 10, 50), "%"),
+    trans="log"
+  ) +
+  scale_x_continuous(breaks=c(2,4,6,8,10)/10) +
+  coord_cartesian(xlim=c(.18, 1.01), ylim=logjust + 1185 * c(0, .5)) +
+  xlab("FD cutoff") +
+  ylab("% frames removed") + #Mean
+  guides(color=guide_legend(nrow=1, title="Method")) +
+  theme(legend.position="none")
+
+pdf(plt_fmt(paste0("FD_ICC_comp.pdf")), height=6, width=3.5)
+cowplot::plot_grid(p1, p2, ncol=1, align="hv", axis="tblr")
+dev.off()
+```
+
+```{r}
+rm(ii, jj, ll)
+rm(m_lev, m_lev_split, pleg2)
+rm(trbreaks)
+```
+
+```{r}
+bnames <- c("HCP__ICA-FIX", "None", "CompCor", "CSF-WM", "9P", "36P", "CC2MP")
+q <- lapply(paste0("Baselines_", bnames), load_a_result)
+
+nT=c(400, 800, 1185)
+
+
+bFC <- bICC <- setNames(vector("list", length(nT)), paste0("T", nT))
+
+# Load mean FC for all methods, for all nT
+z <- 3 #[TEMP]
+for (tt in z) { #seq(length(bFC))) {
+  bFC[[tt]] <- do.call(cbind, lapply(
+    file.path(dir_analysis, "meanFC", paste0(prefix, "_", names, "_", nT[tt], ".rds")),
+    readRDS
+  ))
+  if (what == "baselines") {
+    colnames(bFC[[tt]])[grepl("HCP__ICA-FIX", colnames(bFC[[tt]]))] <- "HCP__ICA-FIX"
+    bFC[[tt]] <- bFC[[tt]][,!grepl("grayo", colnames(bFC[[tt]]))] 
+  }
+}
+if (what == "baselines" && length(nT)==3) {
+  bFC[[1]] <- bFC[[3]] * NA
+  bFC[[2]] <- bFC[[3]] * NA 
+}
+
+# Load MSB, MSR, and ICC31 for all methods, for all nT 
+bICC <- setNames(vector("list", length(nT)), paste0("T", nT))
+for (tt in seq(length(bICC))) {
+  bICC[[tt]] <- lapply(
+    file.path(dir_analysis, "reliability", paste0(prefix, "_", names, "_", nT[tt], ".rds")),
+    readRDS
+  )
+  bICC[[tt]] <- list(
+    MSB=do.call(cbind, lapply(bICC[[tt]], `[[`, "MSB")),
+    MSR=do.call(cbind, lapply(bICC[[tt]], `[[`, "MSR")),
+    ICC31=do.call(cbind, lapply(bICC[[tt]], `[[`, "ICC31"))
+  )
+  if (what == "baselines") {
+    # Fix a bad method name; remove methods that won't be plotted.
+    bICC[[tt]] <- lapply(
+      bICC[[tt]], 
+      function(x){
+        colnames(x)[grepl("HCP__ICA-FIX", colnames(x))] <- "HCP__ICA-FIX"
+        x <- x[,!grepl("grayo", colnames(x))]
+        x
+      }
+    ) 
+  }
+} 
+
+# Collect FC and ICC together.
+q <- bICC
+for (tt in seq(length(q))) { q[[tt]]$Mean <- bFC[[tt]] }
+# Make dataframes for each scan duration.
+q <- lapply(q, function(x){
+  y <- as.data.frame(do.call(cbind, lapply(x, colMeans))); y$bname <- colnames(x[[1]]); y
+})
+q <- lapply(q, function(x){tidyr::pivot_longer(x, cols=seq(ncol(x)-1))})
+for (tt in seq(length(q))) {
+  q[[tt]]["nT"] <- names(q)[tt]
+}
+q <- do.call(rbind, q)
+q$name <- factor(q$name, c("Mean", "MSB", "MSR", "ICC31"))
+q$nT <- factor(q$nT, c("T400", "T800", "T1185"))
+colnames(q)[colnames(q=="name")] <- "what"
+rownames(q) <- NULL
+```
+
+### Baseline FC and ICC comparison
+
+```{r}
+q$bname_main <- factor(gsub("_DCT0|_DCT4", "", q$bname))
+q$DCT <- grepl("DCT4", q$bname)
+q$bname_nice <- factor(
+  q$bname_main, 
+  levels=c(
+    "HCP__ICA-FIX",
+    "None_", 
+    "CompCor__PC01_withCblm", 
+    "CompCor__PC02_withCblm", 
+    "CompCor__PC05_withCblm", 
+    "CompCor__PC10_withCblm", 
+    "CSF-WM_", 
+    "9P__whole",
+    "36P__whole",
+    "CC2MP__06P",
+    "CC2MP__24P"
+  ),
+  labels=c(
+    "ICA-FIX",
+    "MPP", 
+    "CC1", 
+    "CC2", 
+    "CC5", 
+    "CC10", 
+    "2P", 
+    "9P",
+    "36P",
+    "CC2\n+ MP6",
+    "CC2\n+ MP24"
+  )
+)
+q$Detrending <- ifelse(q$DCT, "DCT4", "None")
+q$Detrending <- factor(ifelse(q$bname_nice=="ICA-FIX", "HPF", q$Detrending), levels=c("HPF", "DCT4", "None"))
+```
+
+```{r}
+pdf(plt_fmt(paste0("Baselines_ICC_Expanded.pdf")), height=13, width=7.5)
+
+p1 <- ggplot(q, aes(x=bname_nice, y=value, fill=Detrending, alpha=nT)) +
+    geom_bar(stat="identity", position=position_dodge2(padding=0, preserve="single"), width=.75) +
+    geom_vline(xintercept=c(2.5, 6.5, 9.5), color="black") +
+    theme_cowplot() + theme(legend.position="bottom", panel.background = element_rect(fill = NA, color = "black")) +
+    xlab("Baseline Denoising") + ylab("Value") + 
+    scale_alpha_manual(values=c(.33, .67, 1)) +
+    scale_y_continuous(limits=c(0, NA), expand=expansion(mult=c(0, .01))) +
+    scale_x_discrete(expand=expansion(add=.5)) +
+    scale_fill_manual(values=c("#0d78a1", "#396619", "#626262")) + 
+    facet_grid(name~., scales="free_y")
+
+p1
+
+dev.off()
+
+pdf(plt_fmt(paste0("Baselines_ICC.pdf")), height=4, width=7.25)
+
+p1 <- ggplot(subset(q, name=="ICC31" & nT=="T1185"), aes(x=bname_nice, y=value, fill=Detrending)) +
+    geom_bar(stat="identity", position=position_dodge2(padding=0, preserve="single"), width=.75) +
+    geom_vline(xintercept=c(2.5, 6.5, 9.5), color="black") +
+    theme_cowplot() + theme(legend.position="bottom") +
+    xlab("Baseline Denoising") + ylab("Mean ICC") + 
+    scale_alpha_manual(values=c(.33, .67, 1)) +
+    scale_y_continuous(limits=c(0, NA), expand=expansion(mult=c(0, .01))) +
+    scale_x_discrete(expand=expansion(add=.5)) +
+    scale_fill_manual(values=c("#0d78a1", "#444444", "#cfcfcf"))
+
+p1
+
+dev.off()
+```
+
+```{r}
+rm(
+  p1, plts, q, color_phi, color_th, slicedim, sliceseq, 
+  ss, ykeep, get_subcort_coordlist, plot_slice
+)
+```
+
+# ===========================
+
+### Load data
+
+```{r}
+plt_idx <- plt_idx + 1
+source("6_Plots_1_Kurtosis.R")
+```
+
+```{r}
+anames <- c("meanFC", "reliability", "fingerprinting", "qcfc")
+bnames <- c("HCP__ICA-FIX", "None", "CompCor", "CSF-WM", "9P", "36P", "CC2MP")
+
+# Read in results.
+a <- setNames(vector("list", length(anames)), anames)
+for (aa in anames[anames != "pred"]) {
+  a[[aa]] <- lapply(paste0("Baselines_", bnames), load_a_result, what=aa)
+  names(a[[aa]]) <- bnames
+}
+
+# Process results, mostly by taking the mean across connections.
+for (bb in bnames) {
+  a$meanFC[[bb]] <- colMeans(a$meanFC[[bb]]$meanFC[[1]])
+  a$reliability[[bb]] <- list(
+    MSB = colMeans(a$reliability[[bb]]$MSB[[1]]),
+    MSR = colMeans(a$reliability[[bb]]$MSR[[1]]),
+    ICC31 = colMeans(a$reliability[[bb]]$ICC31[[1]])
+  )
+  a$fingerprinting[[bb]] <- apply(a$fingerprinting[[bb]]$fingerprinting[[1]], 2, score_fingerprint)
+  a$qcfc[[bb]] <- apply(psych::fisherz(a$qcfc[[bb]]$qcfc[[1]]$r), 2, mean)
+}
+
+# Convert to data.frame
+for (aa in c("meanFC", "fingerprinting", "qcfc")) {
+  a[[aa]] <- do.call(c, a[[aa]])
+}
+a$MSB <- do.call(c, lapply(a$reliability, `[[`, "MSB"))
+a$MSR <- do.call(c, lapply(a$reliability, `[[`, "MSR"))
+a$ICC31 <- do.call(c, lapply(a$reliability, `[[`, "ICC31"))
+a$reliability <- NULL
+a$pred <- a$meanFC*NA
+a$pred["36P.36P__whole_DCT4"] <- mean(c(
+  score_preds(readRDS(file.path(dir_analysis, "pred/Sex", "1_36P_Base_1185_S1200.rds"))[["36P_Base_1185_S1200"]]$preds),
+  score_preds(readRDS(file.path(dir_analysis, "pred/Sex", "2_36P_Base_1185_S1200.rds"))[["36P_Base_1185_S1200"]]$preds),
+  score_preds(readRDS(file.path(dir_analysis, "pred/Sex", "3_36P_Base_1185_S1200.rds"))[["36P_Base_1185_S1200"]]$preds),
+  score_preds(readRDS(file.path(dir_analysis, "pred/Sex", "4_36P_Base_1185_S1200.rds"))[["36P_Base_1185_S1200"]]$preds),
+  score_preds(readRDS(file.path(dir_analysis, "pred/Sex", "5_36P_Base_1185_S1200.rds"))[["36P_Base_1185_S1200"]]$preds)
+))
+a$pred["CC2MP.CC2MP__06P_DCT4"] <- mean(c(
+  score_preds(readRDS(file.path(dir_analysis, "pred/Sex", "1_CC2MP6_Base_1185_S1200.rds"))[["CC2MP6_Base_1185_S1200"]]$preds),
+  score_preds(readRDS(file.path(dir_analysis, "pred/Sex", "2_CC2MP6_Base_1185_S1200.rds"))[["CC2MP6_Base_1185_S1200"]]$preds),
+  score_preds(readRDS(file.path(dir_analysis, "pred/Sex", "3_CC2MP6_Base_1185_S1200.rds"))[["CC2MP6_Base_1185_S1200"]]$preds),
+  score_preds(readRDS(file.path(dir_analysis, "pred/Sex", "4_CC2MP6_Base_1185_S1200.rds"))[["CC2MP6_Base_1185_S1200"]]$preds),
+  score_preds(readRDS(file.path(dir_analysis, "pred/Sex", "5_CC2MP6_Base_1185_S1200.rds"))[["CC2MP6_Base_1185_S1200"]]$preds)
+))
+a <- data.frame(
+  v=do.call(c, a),
+  name=gsub(".*\\.", "", names(a[[1]])),
+  what=rep(names(a), each=length(a[[1]]))
+)
+
+# Format
+a$name_main <- factor(gsub("_DCT0|_DCT4", "", a$name))
+a$DCT <- grepl("DCT4", a$name)
+a$name_nice <- factor(
+  a$name_main, 
+  levels=c(
+    "Baselines_HCP__ICA-FIX_1185",
+    "None_", 
+    "CompCor__PC01_withCblm", 
+    "CompCor__PC02_withCblm", 
+    "CompCor__PC05_withCblm", 
+    "CompCor__PC10_withCblm", 
+    "CSF-WM_", 
+    "9P__whole",
+    "36P__whole",
+    "CC2MP__06P",
+    "CC2MP__24P"
+  ),
+  labels=c(
+    "ICA-FIX",
+    "MPP", 
+    "CC1", 
+    "CC2", 
+    "CC5", 
+    "CC10", 
+    "2P", 
+    "9P",
+    "36P",
+    "CC2\n+ MP6",
+    "CC2\n+ MP24"
+  )
+)
+```
+
+```{r}
+q <- subset(a, !is.na(a$name_nice)) # grayordinate-based mean signals
+#q <- subset(q, DCT)
+q$what <- factor(
+  q$what,
+  c("meanFC", "MSB" ,"MSR", "ICC31", "fingerprinting", "pred", "qcfc"),
+  c("Mean", "MSB", "MSR", "ICC(3,1)", "Fingerprinting", "Sex pred. error", "QC-FC")
+)
+q$Detrending <- ifelse(q$DCT, "DCT4", "None")
+q$Detrending <- factor(ifelse(q$name_nice=="ICA-FIX", "HPF", q$Detrending), levels=c("HPF", "DCT4", "None"))
+# Plot
+pdf(plt_fmt(paste0("Baselines_ICC_Expanded2.pdf")), height=18, width=15)
+
+ggplot(q, aes(x=name_nice, y=v, fill=Detrending)) +
+  geom_bar(stat="identity", position=position_dodge2(padding=0, preserve="single"), width=.75) +
+  geom_vline(xintercept=c(2.5, 6.5, 9.5), color="black") +
+  theme_cowplot() + theme(legend.position="bottom", panel.background = element_rect(fill = NA, color = "black")) +
+  xlab("Baseline Denoising") + ylab("Value") + 
+  #scale_alpha_manual(values=c(.33, .67, 1)) +
+  scale_y_continuous(limits=c(0, NA), expand=expansion(mult=c(0, .05))) +
+  scale_x_discrete(expand=expansion(add=.5)) +
+  scale_fill_manual(values=c("#0d78a1", "#222222", "#626262")) + 
+  facet_wrap(what~., ncol=2, scales="free_y", dir="v")
+
+dev.off()
+```
+
+
+# Projection scrubbing cutoff
+
+```{r}
+plt_idx <- plt_idx + 1
+```
+
+```{r}
+snames <- c("Base", "Lev___PCA", "Lev___fusedPCA", "Lev___ICA", "DVARSdual")
+
+# Load MSB, MSR, and ICC31 for all scrubbing methods, for all nT 
+sICC <- setNames(vector("list", length(nT)), paste0("T", nT))
+for (tt in seq(length(sICC))) {
+
+  sFC <- lapply(
+    file.path(dir_analysis, "meanFC", paste0("CC2MP6_", snames, "_", nT[3], ".rds")),
+    readRDS
+  )
+  if (tt != 3) { sICC[[tt]] <- sICC[[tt]] * NA } # TEMP
+  
+  sICC[[tt]] <- lapply(
+    file.path(dir_analysis, "reliability", paste0("CC2MP6_", snames, "_", nT[tt], ".rds")),
+    readRDS
+  )
+  sICC[[tt]] <- list(
+    Mean=do.call(cbind, sFC),
+    MSB=do.call(cbind, lapply(sICC[[tt]], `[[`, "MSB")),
+    MSR=do.call(cbind, lapply(sICC[[tt]], `[[`, "MSR")),
+    ICC31=do.call(cbind, lapply(sICC[[tt]], `[[`, "ICC31"))
+  )
+  # Summarize by network.
+  sICC[[tt]] <- lapply(
+    sICC[[tt]], 
+    function(x){ t(FC_mask$network$inter) %*% x }
+  )
+}
+
+# Load n scrub similarly
+
+# Take differences from baseline
+sICCd <- lapply(sICC, function(x){lapply(x, function(y){y-y[,1]})})
+sICCpd <- lapply(sICC, function(x){lapply(x, function(y){(y-y[,1])/y[,1]*100})})
+```
+
+```{r}
+get_ggs <- function(x, group=c("Proj", "FD")){
+  group <- match.arg(group, c("Proj", "FD"))
+  x2 <- expand.grid(
+    network = rownames(x[[1]][[1]]),
+    method = colnames(x[[1]][[1]]),
+    what = names(x[[1]]),
+    nT = names(x)
+  )
+  
+  x2$value <- do.call(c, lapply(x, function(x){do.call(c, lapply(x, c))}))
+  attr(x2$value, "dimnames") <- NULL
+  stopifnot(
+    x$T800$ICC31["DorsAttn",colnames(x$T400$ICC31)[5]] == subset(
+      x2, network=="DorsAttn" & method==colnames(x$T400$ICC31)[5] & what=="ICC31" & nT=="T800"
+    )$value
+  )
+  
+  x2$method <- as.character(x2$method)
+  x2$method[grepl("Base", x2$method)] <- "Base"
+  x2$method[grepl("DVARSdual", x2$method)] <- "DVARSdual"
+  if (group=="Proj") {
+    x2$isProj <- grepl("Lev___", x2$method)
+    x2$method <- gsub("Lev___", "", x2$method)
+    x2$kurt <- grepl("kurt", x2$method)
+    msplit <- strsplit(x2$method, "_")
+    x2$method2 <- factor(
+      vapply(msplit, function(x){x[1]}, ""),
+      levels=c("Base", "DVARSdual", "ICA", "PCA", "fusedPCA")
+    ) 
+  } else if (group=="FD") {
+    msplit <- strsplit(x2$method, "_")
+    x2$dt <- grepl("dt", x2$method)
+    x2$l4 <- grepl("l4", x2$method)
+    x2$filter2 <- ifelse(grepl("nfb", x2$method), "Bw", ifelse(grepl("nfc", x2$method), "Cb", "No"))
+    x2$filter <- factor(x2$filter2, levels=c("Bw", "Cb", "No"), labels=c("Butterworth", "Chebyshev", "NoFilter"))
+    x2$subgroup <- factor(paste0(ifelse(x2$l4, "Lag-4", "Lag-1"), ", ", x2$filter))
+  }
+  x2$cut <- suppressWarnings(
+    as.numeric(vapply(msplit, function(x){x[length(x)]}, ""))
+  )
+  x2$method <- factor(x2$method)
+  
+  x2
+}
+
+ggs_ICC <- get_ggs(sICC)
+gg_sICCd <- subset(get_ggs(sICCd), method != "Base")
+gg_sICCpd <- subset(get_ggs(sICCpd), method != "Base")
+```
+
+
+```{r}
+ggcols <- Labs[!duplicated(Labs$network),c("network", "network_color")]
+ggcols$network <- as.character(ggcols$network)
+ggcols <- rbind(ggcols, c("all", "#000000"))
+ggcols <- setNames(ggcols$network_color, ggcols$network)
+
+pdf(plt_fmt(paste0("Levcut_ICC.pdf")), height=7.5, width=7)
+
+for (tt in seq(length(nT))) {
+
+  ggs_this <- ggs_ICC[ggs_ICC$kurt & ggs_ICC$nT==paste0("T", nT[tt]) & ggs_ICC$cut>1,]
+  p1 <- ggplot(ggs_this, aes(x=cut, y=value, color=network)) + 
+    geom_line(aes(group=network), alpha=.7, size=1) +
+    geom_vline(xintercept=5, linetype="solid", color="black", alpha=.1, size=4) +
+    geom_point(data=subset(ggs_this, network=="all"), size=2.2) + 
+    facet_grid(what~method2, scale="free_y") +
+    scale_fill_manual(values=ggcols) +
+    scale_color_manual(values=ggcols) + 
+    cowplot::theme_cowplot() + 
+    scale_y_continuous(expand=expansion(mult=c(-.2, .2))) +
+    theme(panel.background = element_rect(fill = NA, color = "black")) +
+    ggtitle(paste0("Reliability-related measures, T=", nT[tt])) +
+    coord_cartesian(xlim=c(2.75, 8))
+  
+  ggs_this <- gg_sICCd[gg_sICCd$kurt & gg_sICCd$nT==paste0("T", nT[tt]) & gg_sICCd$cut>1,]
+  p2 <- ggplot(ggs_this, aes(x=cut, y=value, color=network)) + 
+    geom_vline(xintercept=5, linetype="solid", color="black", alpha=.1, size=4) +
+    geom_hline(yintercept=0, linetype="dashed", color="black") +
+    geom_line(aes(group=network), alpha=.7, size=1) +
+    geom_point(data=subset(ggs_this, network=="all"), size=2.2) + 
+    facet_grid(what~method2, scale="free_y") +
+    scale_fill_manual(values=ggcols) +
+    scale_color_manual(values=ggcols) + 
+    cowplot::theme_cowplot() + 
+    scale_y_continuous(expand=expansion(mult=c(-.2, .2))) +
+    theme(panel.background = element_rect(fill = NA, color = "black")) +
+    ggtitle(paste0("Change from baseline, T=", nT[tt])) +
+    coord_cartesian(xlim=c(2.75, 8))
+  
+  ggs_this <- gg_sICCpd[gg_sICCpd$kurt & gg_sICCpd$nT==paste0("T", nT[tt]) & gg_sICCpd$cut>1,]
+  p3 <- ggplot(ggs_this, aes(x=cut, y=value, color=network)) + 
+    geom_vline(xintercept=5, linetype="solid", color="black", alpha=.1, size=4) +
+    geom_hline(yintercept=0, linetype="dashed", color="black") +
+    geom_line(aes(group=network), alpha=.7, size=1) +
+    geom_point(data=subset(ggs_this, network=="all"), size=2.2) + 
+    facet_grid(what~method2, scale="free_y") +
+    scale_fill_manual(values=ggcols) +
+    scale_color_manual(values=ggcols) + 
+    cowplot::theme_cowplot() + 
+    scale_y_continuous(expand=expansion(mult=c(-.2, .2))) +
+    theme(panel.background = element_rect(fill = NA, color = "black")) +
+    ggtitle(paste0("Percent change, T=", nT[tt])) +
+    coord_cartesian(xlim=c(2.75, 8))
+  
+  print(p1)
+  print(p2)
+  print(p3)
+}
+dev.off()
+```
+
+# FD cutoff
+
+```{r}
+plt_idx <- plt_idx + 1
+```
+
+```{r}
+snames <- c(
+  "Base",
+  "FD___og___", "FD___og_nfb___", "FD___og_nfc___", 
+  #"FD___dt___", "FD___dt_nfb___", "FD___dt_nfc___", 
+  "FD___og_l4___", "FD___og_nfb_l4___", "FD___og_nfc_l4___",
+  #"FD___dt_l4___", "FD___dt_nfb_l4___", "FD___dt_nfc_l4___",
+  "DVARSdual"
+)
+
+# Load MSB, MSR, and ICC31 for all baseline methods, for all nT 
+sICC <- setNames(vector("list", length(nT)), paste0("T", nT))
+for (tt in seq(length(sICC))) {
+  sICC[[tt]] <- lapply(
+    file.path(dir_analysis, "reliability", paste0("CC2MP6_", snames, "_", nT[tt], ".rds")),
+    readRDS
+  )
+  sICC[[tt]] <- list(
+    MSB=do.call(cbind, lapply(sICC[[tt]], `[[`, "MSB")),
+    MSR=do.call(cbind, lapply(sICC[[tt]], `[[`, "MSR")),
+    ICC31=do.call(cbind, lapply(sICC[[tt]], `[[`, "ICC31"))
+  )
+  sICC[[tt]] <- lapply(sICC[[tt]], function(x){x[,!grepl("0.1", colnames(x))]})
+  # Summarize by network.
+  sICC[[tt]] <- lapply(
+    sICC[[tt]], 
+    function(x){ t(FC_mask$network$inter) %*% x }
+  )
+}
+
+# Load n scrub similarly
+
+# Take differences from baseline
+sICCd <- lapply(sICC, function(x){lapply(x, function(y){y-y[,1]})})
+sICCpd <- lapply(sICC, function(x){lapply(x, function(y){(y-y[,1])/y[,1]*100})})
+
+ggs_ICC <- get_ggs(sICC, "FD")
+gg_sICCd <- subset(get_ggs(sICCd, "FD"), method != "Base")
+gg_sICCpd <- subset(get_ggs(sICCpd, "FD"), method != "Base")
+```
+
+```{r}
+ggcols <- Labs[!duplicated(Labs$network),c("network", "network_color")]
+ggcols$network <- as.character(ggcols$network)
+ggcols <- rbind(ggcols, c("all", "#000000"))
+ggcols <- setNames(ggcols$network_color, ggcols$network)
+
+pdf(plt_fmt(paste0("FDcut_ICC.pdf")), height=7.5, width=12)
+
+for (tt in seq(length(nT))) {
+
+  ggs_this <- ggs_ICC[!ggs_ICC$dt & ggs_ICC$nT==paste0("T", nT[tt]),]
+  p1 <- ggplot(ggs_this, aes(x=cut, y=value, color=network)) + 
+    geom_line(aes(group=network), alpha=.7, size=1) +
+    geom_vline(xintercept=.5, linetype="solid", color="black", alpha=.1, size=4) +
+    geom_point(data=subset(ggs_this, network=="all"), size=2.2) + 
+    facet_grid(what~subgroup, scale="free_y") +
+    scale_fill_manual(values=ggcols) +
+    scale_color_manual(values=ggcols) + 
+    cowplot::theme_cowplot() + 
+    scale_x_continuous(breaks=c(.2, .4, .6, .8)) +
+    scale_y_continuous(expand=expansion(mult=ifelse(tt==1, 0, .1)*c(-1, 1))) +
+    theme(panel.background = element_rect(fill = NA, color = "black")) +
+    ggtitle(paste0("Reliability-related measures, T=", nT[tt])) +
+    coord_cartesian(xlim=c(.28, .8))
+  
+  ggs_this <- gg_sICCd[!gg_sICCd$dt & gg_sICCd$nT==paste0("T", nT[tt]),]
+  p2 <- ggplot(ggs_this, aes(x=cut, y=value, color=network)) + 
+    geom_vline(xintercept=.5, linetype="solid", color="black", alpha=.1, size=4) +
+    geom_hline(yintercept=0, linetype="dashed", color="black") +
+    geom_line(aes(group=network), alpha=.7, size=1) +
+    geom_point(data=subset(ggs_this, network=="all"), size=2.2) + 
+    facet_grid(what~subgroup, scale="free_y") +
+    scale_fill_manual(values=ggcols) +
+    scale_color_manual(values=ggcols) + 
+    cowplot::theme_cowplot() + 
+    scale_x_continuous(breaks=c(.2, .4, .6, .8)) +
+    scale_y_continuous(expand=expansion(mult=ifelse(tt==1, 0, .1)*c(-1, 1))) +
+    theme(panel.background = element_rect(fill = NA, color = "black")) +
+    ggtitle(paste0("Change from baseline, T=", nT[tt])) +
+    coord_cartesian(xlim=c(.28, .8))
+  
+  ggs_this <- gg_sICCpd[!gg_sICCpd$dt & gg_sICCpd$nT==paste0("T", nT[tt]),]
+  p3 <- ggplot(ggs_this, aes(x=cut, y=value, color=network)) + 
+    geom_vline(xintercept=.5, linetype="solid", color="black", alpha=.1, size=4) +
+    geom_hline(yintercept=0, linetype="dashed", color="black") +
+    geom_line(aes(group=network), alpha=.7, size=1) +
+    geom_point(data=subset(ggs_this, network=="all"), size=2.2) + 
+    facet_grid(what~subgroup, scale="free_y") +
+    scale_fill_manual(values=ggcols) +
+    scale_color_manual(values=ggcols) + 
+    cowplot::theme_cowplot() + 
+    scale_x_continuous(breaks=c(.2, .4, .6, .8)) +
+    scale_y_continuous(expand=expansion(mult=ifelse(tt==1, 0, .1)*c(-1, 1))) +
+    theme(panel.background = element_rect(fill = NA, color = "black")) +
+    ggtitle(paste0("Percent change, T=", nT[tt])) +
+    coord_cartesian(xlim=c(.28, .8))
+  print(p1)
+  print(p2)
+  print(p3)
+}
+dev.off()
+```
+
+
+
+### New FD
+
+```{r}
+FDnew <- readRDS("G:/.shortcut-targets-by-id/1-9kU5O4-bU0AeEZKukSvz4jbvolppJGG/ddpham/Scrubbing-Paper/github/projection-scrubbing/analysis-results/4_Analysis/reliability/CC2MP6_FDnew.rds")
+FDnew_ns <- readRDS("G:/.shortcut-targets-by-id/1-9kU5O4-bU0AeEZKukSvz4jbvolppJGG/ddpham/Scrubbing-Paper/github/projection-scrubbing/analysis-results/3_FC/nScrub_CC2MP6_FDnew.rds")
+
+FD_cICC <- FDnew - a$ICC[,mmethods["CC2+6P"]]
+q <- colnames(FD_cICC)
+q <- data.frame(
+  cut = as.numeric(gsub(".*___", "", q)),
+  l4 = ifelse(grepl("l4", q), "Lag-4", "Lag-1"),
+  nf = ifelse(grepl("nf", q), ifelse(grepl("nfb", q), "b", "c"), "none"),
+  cICCmean = apply(FD_cICC, 2, mean),
+  cICCq.1 = apply(FD_cICC, 2, quantile, .1),
+  cICCq.9 = apply(FD_cICC, 2, quantile, .9),
+  nScrub = apply(FDnew_ns, 3, mean),
+  nScrub.1 = apply(FDnew_ns, 3, quantile, .1),
+  nScrub.9 = apply(FDnew_ns, 3, quantile, .9)
+)
+q$l4 <- factor(q$l4)
+q$nf <- factor(q$nf, levels=c("none", "b", "c"), labels=c("None", "Butterworth", "Cheby2"))
+```
+
+```{r}
+pdf(plt_fmt(paste0("FDnew_ICC.pdf")), width=5, height=10)
+
+ggplot(subset(q, (cut*10) %% 1 == 0), aes(x=cut, y=cICCmean, color=nf)) + 
+  geom_hline(yintercept=dv_icc, color=myColors["DVARS"]) +
+  geom_hline(yintercept=mean(a$ICC[,"FD___0.4"] - a$ICC[,"Base"]), color=myColors["FD"]) +
+  geom_vline(xintercept=c(.4), size=.8, color="#cccccc") +
+  geom_hline(yintercept=0, linetype="dashed", color="black") +
+  geom_line(size=0.8) +
+  geom_point(data=subset(q, (cut*10) %% 1 == 0), size=2.2) +
+  #scale_color_manual(values=color_fd, guide=FALSE) +
+  cowplot::theme_cowplot() +
+  scale_y_continuous(breaks=c(-.005, 0, .005)) +
+  scale_x_continuous(breaks=c(2,4,6,8,10)/10) +
+  coord_cartesian(xlim=c(.18, 1.01), ylim=c(-.005, .005)) +
+  xlab("FD cutoff") +
+  ylab("ICC improvement") + #Mean
+  guides(color=guide_legend(nrow=1, title="Respiratory Bandstop Filter")) +
+  theme(legend.position="bottom") +
+  facet_grid(l4~.)
+dev.off()
+```
+
+# MyNextPlot
+
+```{r}
+anames <- c("nScrub", "meanFC", "reliability", "fingerprinting", "qcfc")
+bnames <- c("CC2MP6", "36P")
+snames <- c(
+  "Base", "DVARSdual", 
+  "FD___og___", "FD___og_nfc_l4___", 
+  "Lev___ICA", "Lev___PCA", "Lev___fusedPCA"
+)
+
+pdf(plt_fmt(paste0("Scrubbing_Expanded2.pdf")), height=18, width=15)
+
+for (bname in bnames) {
+  snames2 <- snames
+  if (bname=="36P") { snames2 <- c(
+    "Base", "DVARSdual", 
+    "FD___og___", "FD___og_nfc_l4", 
+    "Lev___ICA", "Lev___PCA", "Lev___fusedPCA"
+  )  }
+  # Read in results.
+  a <- setNames(vector("list", length(anames)), anames)
+  for (aa in anames[anames != "pred"]) {
+    a[[aa]] <- lapply(paste0(bname, "_", snames2), load_a_result, what=aa)
+    names(a[[aa]]) <- snames
+  }
+  
+  # Process results, mostly by taking the mean across connections.
+  for (bb in snames) {
+    a$nScrub[[bb]] <- colMeans(a$nScrub[[bb]]$nScrub[[1]], dims=2)
+    a$meanFC[[bb]] <- colMeans(a$meanFC[[bb]]$meanFC[[1]])
+    a$reliability[[bb]] <- list(
+      MSB = colMeans(a$reliability[[bb]]$MSB[[1]]),
+      MSR = colMeans(a$reliability[[bb]]$MSR[[1]]),
+      ICC31 = colMeans(a$reliability[[bb]]$ICC31[[1]])
+    )
+    a$fingerprinting[[bb]] <- apply(a$fingerprinting[[bb]]$fingerprinting[[1]], 2, score_fingerprint)
+    a$qcfc[[bb]] <- apply(psych::fisherz(a$qcfc[[bb]]$qcfc[[1]]$r), 2, mean)
+  }
+  
+  # Convert to data.frame
+  a[["nScrub"]] <- do.call(c, a[["nScrub"]])
+  for (aa in c("meanFC", "fingerprinting", "qcfc")) {
+    a[[aa]] <- do.call(c, a[[aa]]) - a[[aa]][["Base"]]
+  }
+  a$MSB <- do.call(c, lapply(a$reliability, `[[`, "MSB")) - a$reliability$Base$MSB
+  a$MSR <- do.call(c, lapply(a$reliability, `[[`, "MSR")) - a$reliability$Base$MSR
+  a$ICC31 <- do.call(c, lapply(a$reliability, `[[`, "ICC31")) - a$reliability$Base$ICC31
+  a$reliability <- NULL
+  
+  if (bname=="36P") {
+    a$pred <- a$meanFC * NA
+    a$pred["Base.36P_Base_1185"] <- mean(c(
+      score_preds(readRDS(file.path(dir_analysis, "pred/Sex",
+        "1_36P_Base_1185_S1200.rds"
+      ))[["36P_Base_1185_S1200"]]$preds)
+    ))
+    a$pred["DVARSdual.36P_DVARSdual_1185"] <- mean(c(
+      score_preds(readRDS(file.path(dir_analysis, "pred/Sex",
+        "1_36P_Base_1185_S1200.rds"
+      ))[["36P_Base_1185_S1200"]]$preds)
+    ))
+    a$pred["Lev___ICA.Lev___ICA_kurt___5"] <- mean(c(
+      score_preds(readRDS(file.path(dir_analysis, "pred/Sex",
+        "1_36P_Lev___ICA_1185_S1200.rds"
+      ))[["Lev___ICA___5"]]$preds)
+    ))
+  }
+  a$pred <- NULL # temp
+  
+  z <- which(names(a$meanFC) %in% c(
+    "Base.CC2MP6_Base_1185", "DVARSdual.CC2MP6_DVARSdual_1185",
+    "Base.36P_Base_1185", "DVARSdual.36P_DVARSdual_1185",
+    "FD___og___.FD___og___0.5", "FD___og_nfc_l4___.FD___og_nfc_l4___0.5", 
+    "Lev___ICA.Lev___ICA_kurt___5", "Lev___PCA.Lev___PCA_kurt___5",
+    "Lev___fusedPCA.Lev___fusedPCA_kurt___5"
+  ))
+  a <- lapply(a, function(x){x[z]})
+  
+  a <- data.frame(
+    v=do.call(c, a),
+    name=names(a[[1]]),
+    what=rep(names(a), each=length(a[[1]]))
+  )
+  a$name <- c("Base", "DVARSdual", "FD_og", "FD_new", "ICA", "PCA", "fusedPCA") 
+  q <- subset(a, name!="Base")
+  q$what <- factor(
+    q$what,
+    c("meanFC", "MSB" ,"MSR", "ICC31", "nScrub", "fingerprinting", "pred", "qcfc"),
+    c("Mean", "MSB", "MSR", "ICC(3,1)", "nScrub", "Fingerprinting", "Sex pred. error", "QC-FC")
+  )
+  plt <- ggplot(q, aes(x=name, y=v)) +
+    geom_bar(stat="identity", position=position_dodge2(padding=0, preserve="single"), width=.75) +
+    geom_vline(xintercept=c(1.5, 3.5), color="black") +
+    theme_cowplot() + theme(legend.position="bottom", panel.background = element_rect(fill = NA, color = "black")) +
+    xlab("Baseline Denoising") + ylab("Value") + 
+    #scale_alpha_manual(values=c(.33, .67, 1)) +
+    #scale_y_continuous(expand=expansion(mult=c(.05, .05))) +
+    scale_x_discrete(expand=expansion(add=.5)) +
+    scale_fill_manual(values=c("#0d78a1", "#222222", "#626262")) + 
+    facet_wrap(what~., scales="free_y", ncol=2, dir="v")
+  print(plt)
+}
+
+dev.off()
+```
+
+```{r}
+# Num scrub vs ICC
+```
+
+
+```{r}
+plt_idx <- plt_idx + 1
+```
+
+```{r}
+m_lev_gg2 <- subset(m_lev_gg, kurt & (cut %% 1) == 0 & proj %in% c("PCA", "ICA", "fusedPCA"))
+m_lev_gg2 <- m_lev_gg2[,c("name", "nScrub", "cICCmean")]
+
+m_kurt_gg2 <- subset(q, (cut*10) %% 1 == 0)
+m_kurt_gg2$name <- "FD"
+m_kurt_gg2 <- m_kurt_gg2[,c("name", "nScrub", "cICCmean")]
+
+m_dv_gg2 <- data.frame(
+  name = "DVARS", nScrub=dv_ns, cICCmean=dv_icc
+)
+
+m_gg2 <- rbind(m_lev_gg2, m_kurt_gg2, m_dv_gg2)
+m_gg2$name <- factor(
+  m_gg2$name, levels=c("PCA", "ICA", "FusedPCA", "DVARS", "FD"),
+  labels=c("PCAlev", "ICAlev", "FusedPCAlev", "DVARS", "FD")
+)
+```
+
+```{r}
+pdf(plt_fmt(paste0("NumScrubbed_vs_ICC.pdf")), width=5, height=5)
+
+ggplot(m_gg2, aes(x=nScrub + logjust, y=cICCmean, color=name)) + 
+  geom_hline(yintercept=0, linetype="dashed") +
+  coord_cartesian(ylim=c(0, .01)) +
+  geom_point(size=2) +
+  xlab("% frames removed") + ylab("ICC improvement") +
+  scale_color_manual(values=myColors[levels(m_gg2$name)]) +
+  scale_x_continuous(
+    breaks=logjust + 1185 * c(0, .01, .05, .1, .5), 
+    labels=paste0(" ", c(0, 1, 5, 10, 50), "%"),
+    trans="log"
+  ) + theme_bw() + 
+  scale_y_continuous(breaks=c(0, .005, .01)) +
+  labs(color="Scrubbing method") +
+  theme(legend.position = "bottom")
+
+dev.off()
+```
+
+```{r}
+mac <- readRDS(file.path(dir_analysis, "mac", "CC2MP6.rds"))
+
+micc <- readRDS("G:/.shortcut-targets-by-id/1-9kU5O4-bU0AeEZKukSvz4jbvolppJGG/ddpham/Scrubbing-Paper/github/projection-scrubbing/analysis-results/4_Analysis/reliability/CC2MP6.rds")
+mns <- readRDS("G:/.shortcut-targets-by-id/1-9kU5O4-bU0AeEZKukSvz4jbvolppJGG/ddpham/Scrubbing-Paper/github/projection-scrubbing/analysis-results/3_FC/nScrub_CC2MP6_.rds")
+
+xcICC <- micc - a$ICC[,mmethods["CC2+6P"]]
+v <- colnames(FD_cICC)
+v <- data.frame(
+  cut = as.numeric(gsub(".*___", "", v)),
+  l4 = ifelse(grepl("l4", v), "Lag-4", "Lag-1"),
+  nf = ifelse(grepl("nf", v), ifelse(grepl("nfb", v), "b", "c"), "none"),
+  cICCmean = apply(xcICC, 2, mean),
+  cICCq.1 = apply(xcICC, 2, quantile, .1),
+  cICCq.9 = apply(xcICC, 2, quantile, .9),
+  nScrub = apply(mns, 3, mean),
+  nScrub.1 = apply(mns, 3, quantile, .1),
+  nScrub.9 = apply(mns, 3, quantile, .9)
+)
+v$mac <- mac
+
+v$name <- factor(
+  gsub("_.*", "", gsub("Lev___", "", rownames(v)))
+)
+v <- subset(v, v$name != "Base")
+v$name <- factor(
+  v$name,
+  levels=c("PCA", "ICA", "fusedPCA", "DVARSdual", "FD"),
+  labels=c("PCAlev", "ICAlev", "FusedPCAlev", "DVARS", "FD")
+)
+
+#pdf(plt_fmt(paste0("NumScrubbed_vs_ICC.pdf")), width=5, height=5)
+
+ggplot(v, aes(x=nScrub + logjust, y=mac, color=name)) + 
+  geom_hline(yintercept=0, linetype="dashed") +
+  coord_cartesian(ylim=c(0, .03)) +
+  geom_point(size=2) +
+  xlab("% frames removed") + ylab("MAC-rsFC") +
+  scale_color_manual(values=myColors[levels(m_gg2$name)]) +
+  scale_x_continuous(
+    breaks=logjust + 1185 * c(0, .01, .05, .1, .5), 
+    labels=paste0(" ", c(0, 1, 5, 10, 50), "%"),
+    trans="log"
+  ) + theme_bw() + 
+  labs(color="Scrubbing method") +
+  theme(legend.position = "bottom")
+
+#dev.off()
+```
+
+```{r}
+rm(pt)
+rm(ii, jj, ll)
+rm(m_lev, m_lev_gg, m_lev_split, pleg2)
+rm(slicedim, sliceseq, ss, trbreaks)
+```
+
+# Overlap
+
+```{r}
+plt_idx <- plt_idx + 1
+```
+
+```{r}
+overlap <- readRDS(file.path(dir_analysis, "overlap", "CC2MP6.rds"))
+
+pdf(plt_fmt(paste0("Scrubbing_Flag_Overlap_Similarity.pdf")), height=3.5, width=5.5)
+
+overlap2 <- apply(overlap, seq(2,4), sum)
+dimnames(overlap2)[[2]] <- gsub("Lev", "", dimnames(overlap2)[[2]])
+o_gg <- expand.grid(subject=subjects, pair=dimnames(overlap2)[[2]], what=dimnames(overlap2)[[3]])
+o_gg$subject <- factor(o_gg$subject, levels=subjects)
+o_gg$what <- factor(o_gg$what, levels=c("first", "both", "second"))
+o_gg$value <- c(overlap2)
+
+for (pp in seq(dim(overlap2)[2])) {
+  pair0 <- dimnames(overlap2)[[2]][pp]
+  pair <- strsplit(pair0, "_")[[1]][c(1,3)]
+  pair_cols <- as.character(setNames(myColors, gsub("lev", "", names(myColors)))[pair])
+  print(pair)
+  o_ggp <- subset(o_gg, pair==pair0)
+  order_p <- order(overlap2[,pair0,2] + overlap2[,pair0,3], decreasing=TRUE)
+  o_ggp$subject <- factor(o_ggp$subject, levels=subjects[order_p])
+  plt <- ggplot(data=o_ggp, aes(x=subject, y=value, fill=what)) + 
+    geom_bar(stat="identity", width=.8) +
+    scale_y_continuous(expand=c(0,.1)) +
+    scale_fill_manual(values=c(pair_cols[1], "#00FF00", pair_cols[2]), labels=c(pair[1], "Both", pair[2])) +
+    theme_cowplot() +
+    xlab("Subjects") + ylab("Total Volumes Censored\n(out of 9600)") + 
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position="bottom")
+  print(plt)
+}
+
+dev.off()
+```
+
+# FC
+
+```{r}
+plt_idx <- plt_idx + 1
+```
+
+### Mean
+
+```{r}
+pdf(plt_fmt(paste0("FC_Mean.pdf")))
+
+for (ii in seq(length(mmethods))) {
+  method_name <- mmethods[ii]
+  method_name2 <- names(mmethods)[ii]
+  cat(method_name2, "\t")
+  
+  q <- ggcorrplot2(
+    a$meanFC[,method_name], coloring$diverging3,
+    paste("Mean FC:", method_name2), "FC", lim=lim_FC
+  )
+  print(q)
+  
+} 
+
+dev.off()
+```
+
+### QC-FC
+
+```{r}
+qc <- cbind(
+  readRDS(file.path(dir_analysis, "qcfc", "CC2MP6.rds"))$r,
+  readRDS(file.path(dir_analysis, "qcfc", "Baselines.rds"))$r
+)
+qc <- qc[,mmethods]
+qp <- cbind(
+  readRDS(file.path(dir_analysis, "qcfc", "CC2MP6.rds"))$pvals,
+  readRDS(file.path(dir_analysis, "qcfc", "Baselines.rds"))$pvals
+)
+qp <- qp[,mmethods]
+```
+
+```{r}
+qc_methods <- c("ICA-FIX", "MPP", "DCT4", "CC2+6P", "PCAlev", "ICAlev", "FusedPCAlev", "DVARS", "FD")
+qc2 <- qc; colnames(qc2) <- names(mmethods)
+qc2 <- qc2[,qc_methods]
+
+qc2 <- data.frame(
+  v = c(qc2),
+  f = seq(7021),
+  method = factor(rep(colnames(qc2), each=nrow(qc2)), levels=colnames(qc2))
+)
+
+qc_cols <- myColors[c("ICAFIX", "altGray", "DCT4", "DCT4", "PCAlev", "ICAlev", "FusedPCAlev", "DVARS", "FD")]
+names(qc_cols) <- NULL
+
+p1 <- ggplot(qc2, aes(x=method, y=abs(v), color=method)) + 
+  #geom_line(aes(group=f), color="lightgrey", alpha=.25, size=.3) +
+  geom_boxplot(width=.5) +
+  ylab("absolute correlation\nbetween mean FD and FC") +
+  geom_hline(yintercept=0, linetype="dashed") +
+  scale_color_manual(values=qc_cols) +
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = "") +
+  theme_bw() + theme(legend.position="none")
+
+bs <- Labs[,"bs"]
+bs <- outer(bs, bs, paste0)
+bs <- bs[upper.tri(bs)]
+bs <- vapply(bs, function(x){switch(x,
+  `leftleft` = "C-C",
+  `leftright` = "C-C",
+  `leftsubcort` = "C-SC",
+  `rightleft` = "C-C",
+  `rightright` = "C-C",
+  `rightsubcort` = "C-SC",
+  `subcortleft` = "C-SC",
+  `subcortright` = "C-SC",
+  `subcortsubcort` = "SC-SC"
+)}, "")
+bs <- factor(
+  bs, levels=c("C-C", "C-SC", "SC-SC"), 
+  labels=c("cortex-cortex", "cortex-subcortex", "subcortex-subcortex")
+)
+
+qc3 <- cbind(qc2, bs=bs)
+qc3 <- aggregate(list(v=qc3$v), list(method=qc3$method, bs=qc3$bs), mean)
+
+p2 <- ggplot(qc3, aes(x=method, y=v, color=method)) + 
+  geom_point(size=2, aes(shape=bs)) +
+  ylab("Mean FD-FC within FC type") +
+  guides(color="none") +
+  scale_color_manual(values=qc_cols) +
+  theme_bw() + theme(legend.position="bottom")
+
+qp2 <- qp; colnames(qp2) <- names(mmethods)
+qp2 <- qp2[,qc_methods]
+qp3 <- qp2
+qp2[] <- p.adjust(qp2[], "BH")
+qp2 <- qp2 < .05
+qc4 <- qc2
+qc4$v <- c(qp2)
+qc4$bs <- bs
+qc4 <- aggregate(list(v=qc4$v), list(method=qc4$method, bs=qc4$bs), mean)
+
+p3 <- ggplot(qc4, aes(x=method, y=v, color=method)) + 
+  geom_point(size=3, aes(shape=bs)) +
+  ylab("proportion of significant correlations\nbetween mean FD and FC") + xlab("") +
+  guides(color="none") +
+  geom_hline(yintercept=0, linetype="dashed") +
+  scale_color_manual(values=qc_cols) +
+  labs(shape="Brainstructure") +
+  theme_bw() + theme(legend.position="bottom")
+
+pdf(plt_fmt(paste0("QCFC_boxplots.pdf")), height=7, width=6)
+cowplot::plot_grid(p1, p3, ncol=1, rel_heights = c(1, 1.2), align="v")
+dev.off()
+```
+
+```{r}
+lim_QCFC <- .4
+
+pdf(plt_fmt(paste0("QCFC_dupe.pdf")))
+for (ii in seq(length(mmethods))) {
+  method_name <- mmethods[ii]
+  method_name2 <- names(mmethods)[ii]
+  cat(method_name2, "\t")
+  q <- ggcorrplot2(
+    qc[,method_name], coloring$diverging3,
+    paste("QCFC:", method_name2), "QCFC", lim=lim_QCFC
+  )
+  print(q)
+  
+} 
+dev.off()
+
+FC_mask <- p.adjust(qp[,"MPCC2__06P_DCT4"], method="BH") < .05
+qc[!FC_mask,] <- 0
+
+pdf(plt_fmt(paste0("QCFC_BH05sig.pdf")))
+for (ii in seq(length(mmethods))) {
+  method_name <- mmethods[ii]
+  method_name2 <- names(mmethods)[ii]
+  cat(method_name2, "\t")
+  q <- ggcorrplot2(
+    qc[,method_name], coloring$diverging3,
+    paste("QCFC:", method_name2), "QCFC", lim=lim_QCFC
+  )
+  print(q)
+  
+} 
+dev.off()
+```
+
+### Mean change
+
+```{r}
+pdf(plt_fmt(paste0("FC_Mean_Change.pdf")))
+for (ii in seq(length(mmethods2))) {
+  method_name <- mmethods2[ii]
+  method_name2 <- names(mmethods2)[ii]
+  cat(method_name2, "\t")
+  q <- ggcorrplot2(
+    a$meanFC[,method_name] - a$meanFC[,"MPCC2__06P_DCT4"], coloring$diverging3,
+    paste("Change in mean FC from baseline:", method_name2), "FC change", 
+    lim=lim_cFC, diagVal=0
+  )
+  print(q)
+  
+} 
+dev.off()
+```
+
+### Mean change due to scan length
+
+```{r}
+pdf(plt_fmt(paste0("FC_Mean_Change_from400.pdf")))
+for (ii in seq(length(mmethods4))) {
+  method_name <- mmethods4[ii]
+  method_name2 <- names(mmethods4)[ii]
+  cat(method_name2, "\t")
+  q <- ggcorrplot2(
+    a$meanFC[,method_name] - b$meanFC[[1]][,method_name], coloring$diverging3,
+    paste("Change in mean FC from t=400:", method_name2), "FC change", 
+    lim=.15, diagVal=0
+  )
+  print(q)
+  
+} 
+dev.off()
+```
+
+```{r}
+pdf(plt_fmt(paste0("FC_Mean_Change_from800.pdf")))
+for (ii in seq(length(mmethods4))) {
+  method_name <- mmethods4[ii]
+  method_name2 <- names(mmethods4)[ii]
+  cat(method_name2, "\t")
+  q <- ggcorrplot2(
+    a$meanFC[,method_name] - b$meanFC[[2]][,method_name], coloring$diverging3,
+    paste("Change in mean FC from t=800:", method_name2), "FC change", 
+    lim=.15, diagVal=0
+  )
+  print(q)
+  
+} 
+dev.off()
+```
+
+### By network
+
+Baseline
+
+```{r}
+# Get matrix of change in FC.
+y <- cor_mat(
+  a$meanFC[,"MPCC2__06P_DCT4"], 
+  names=Labs$label, newOrder=order(Labs$idx2)
+)
+
+# Block diagonals.
+z <- matrix(nrow=8, ncol=8)
+for (jj in seq(nrow(z))) {
+  for (kk in seq(ncol(z))) {
+    z[jj,kk] <- mean(
+      y[seq(pdv[jj], pdv[jj+1]-1), 120 - seq(pdv[kk], pdv[kk+1]-1)], na.rm=TRUE
+    )
+  }
+}
+gg_df <- data.frame(
+  v = c(diag(z), apply(z, 2, mean), mean(z[upper.tri(z)])),
+  part = c(rep(unique(Labs$network3[order(Labs$idx2)]), 2), "Inter-network"),
+  type = c(rep(c("on", "offToo"), each=8), "on")
+)
+
+# Subcortex
+z2 <- apply(y[seq(101, 119),], 1, mean, na.rm=TRUE)
+z2 <- dplyr::summarise(
+  dplyr::group_by(data.frame(x=z2), Labs$group[seq(101, 119)]), 
+  v=mean(x)
+)
+gg_df2 <- data.frame(
+  v = z2$v,
+  part = z2[,1]
+)
+
+# Oragnize
+gg_df$part <- factor(gg_df$part, levels=c(unique(Labs$network3[order(Labs$idx2)]), "Inter-network"))
+
+Labs2 <- Labs[Labs$network_first,]
+Labs2 <- setNames(
+  c(Labs2$network_color, color_Rpals$Set2[4], color_Rpals$Set2[4]), 
+  c(as.character(Labs2$network3), "All", "Inter-network")
+)
+
+colnames(gg_df2) <- c("v", "part")
+
+SLabs2 <- Labs[order(Labs$idx2)[Labs$group_first[order(Labs$idx2)]],]
+gg_df2$part <- factor(gg_df2$part, levels=SLabs2$group, labels=SLabs2$group2)
+SLabs2 <- setNames(SLabs2$group_color, SLabs2$group)
+
+pdf(plt_fmt(paste0("FC_byNet_Base.pdf")), height=4, width=2.5)
+
+p1 <- ggplot(subset(gg_df, type=="offToo"), aes(y=v, x=part)) + 
+  geom_col(
+    fill=Labs2[levels(gg_df$part)[-9]], 
+    colour="#444444", size=.2, width=.75, position=position_dodge(0.5)) + 
+  geom_hline(yintercept=0, linetype="solid") +
+  geom_hline(yintercept=.2, linetype="dashed") +
+  geom_hline(yintercept=.4, linetype="dashed") +
+  ylab("FC") + ylab("") +
+  coord_cartesian(ylim=c(0, .45), expand=FALSE) +
+  scale_x_discrete(expand=c(0,0)) +
+  theme_cowplot()
+
+p1
+
+dev.off()
+```
+
+Scrubbing
+
+```{r}
+gg_df <- gg_df2 <- vector("list", length(mmethods2))
+for (mm in seq(length(mmethods2))) {
+  # Get matrix of change in FC.
+  y <- cor_mat(
+    a$meanFC[,mmethods2[mm]] - a$meanFC[,"MPCC2__06P_DCT4"], 
+    names=Labs$label, newOrder=order(Labs$idx2)
+  )
+  
+  # Block diagonals.
+  z <- matrix(nrow=8, ncol=8)
+  for (jj in seq(nrow(z))) {
+    for (kk in seq(ncol(z))) {
+      z[jj,kk] <- mean(
+        y[seq(pdv[jj], pdv[jj+1]-1), 120 - seq(pdv[kk], pdv[kk+1]-1)], na.rm=TRUE
+      )
+    }
+  }
+  gg_df[[mm]] <- data.frame(
+    v = c(diag(z), apply(z, 2, mean), mean(z[upper.tri(z)])),
+    part = c(rep(unique(Labs$network3[order(Labs$idx2)]), 2), "Inter-network"),
+    type = c(rep(c("on", "offToo"), each=8), "on"),
+    method = names(mmethods2)[[mm]]
+  )
+  
+  # Subcortex
+  z2 <- apply(y[seq(101, 119),], 1, mean, na.rm=TRUE)
+  z2 <- dplyr::summarise(
+    dplyr::group_by(data.frame(x=z2), Labs$group[seq(101, 119)]), 
+    v=mean(x)
+  )
+  gg_df2[[mm]] <- data.frame(
+    v = z2$v,
+    part = z2[,1],
+    method = names(mmethods2)[[mm]]
+  )
+}
+gg_df <- do.call(rbind, gg_df)
+gg_df$part <- factor(gg_df$part, levels=c(unique(Labs$network3[order(Labs$idx2)]), "Inter-network"))
+gg_df$method <- factor(gg_df$method, levels=rev(names(mmethods2)))
+
+Labs2 <- Labs[Labs$network_first,]
+Labs2 <- setNames(
+  c(Labs2$network_color, color_Rpals$Set2[4], color_Rpals$Set2[4]), 
+  c(as.character(Labs2$network3), "All", "Inter-network")
+)
+
+gg_df2 <- do.call(rbind, gg_df2)
+gg_df2 <- aggregate(gg_df2$v, by=list(gg_df2[,2], gg_df2$method), mean)
+colnames(gg_df2)[seq(2)] <- c("part", "method")
+
+SLabs2 <- Labs[order(Labs$idx2)[Labs$group_first[order(Labs$idx2)]],]
+gg_df2$part <- factor(gg_df2$part, levels=SLabs2$group, labels=SLabs2$group2)
+SLabs2 <- setNames(SLabs2$group_color, SLabs2$group)
+gg_df2$method <- factor(gg_df2$method, levels=rev(names(mmethods2)))
+
+lim_cFC2 <- .004
+
+pdf(plt_fmt(paste0("FC_Change_byNet.pdf")), height=5, width=4)
+
+p1 <- ggplot(subset(gg_df, type=="offToo"), aes(x=v, y=part)) + 
+  geom_raster(data=data.frame(
+    v=rep(0, 8), 
+    part=factor(levels(gg_df$part)[-9], levels(gg_df$part)[-9])
+  ), fill=Labs2[levels(gg_df$part)[-9]]) +
+  geom_raster(data=data.frame(
+    v=rep(.495, 8),
+    part=factor(levels(gg_df$part)[-9], levels(gg_df$part)[-9])
+  ), fill="white", alpha=rep(c(.92,.92), 4)) +
+  geom_col(aes(fill=method), colour="#444444", size=.2, width=0.5, position=position_dodge(0.5)) + 
+  geom_vline(xintercept=0, linetype="solid") +
+  xlab("FC Change") + ylab("") +
+  coord_cartesian(xlim=c(-lim_cFC2, lim_cFC2)) +
+  scale_x_continuous(breaks=c(-lim_cFC2, 0, lim_cFC2), labels=c(lim_cFC2*(-1), "0", lim_cFC2)) +
+  scale_y_discrete(limits=rev, expand=c(0,0)) +
+  scale_fill_manual(values=myColors, name="", guide=guide_legend(reverse=TRUE)) +
+  theme_cowplot()
+
+p2 <- ggplot(gg_df2, aes(x=x, y=part)) + 
+  geom_raster(data=data.frame(
+    x=rep(0, 5), 
+    part=factor(levels(gg_df2$part), levels(gg_df2$part))
+  ), fill=SLabs2) +
+  geom_raster(data=data.frame(
+    x=rep(.495, 5),
+    part=factor(levels(gg_df2$part), levels(gg_df2$part))
+  ), fill="white", alpha=rep(.92, 5)) +
+  geom_col(aes(fill=method), colour="#444444", size=.2, width=0.5*5/8, position=position_dodge(0.5*5/8)) + 
+  geom_vline(xintercept=0, linetype="solid") +
+  xlab("FC Change") + ylab("") +
+  coord_cartesian(xlim=c(-lim_cFC2, lim_cFC2)) +
+  scale_x_continuous(breaks=c(-lim_cFC2, 0, lim_cFC2), labels=c(lim_cFC2*(-1), "0", lim_cFC2)) +
+  scale_y_discrete(limits=rev, expand=c(0,0)) +
+  scale_fill_manual(values=myColors, name="", guide=guide_legend(reverse=TRUE)) +
+  theme_cowplot()
+
+
+cowplot::plot_grid(
+  p1 + theme(legend.position = "none"), 
+  NULL,
+  p2 + theme(legend.position = "none"), 
+  nrow=1, align="hv", axis="tlbr",
+  rel_widths = c(1, -.18, 1)
+)
+
+plot_grid(NULL, cowplot::get_legend(p1 + scale_y_discrete(expand=c(0,0))), ncol=1)
+
+dev.off()
+```
+
+### By connection type
+
+```{r}
+pdf(plt_fmt(paste0("FC_byFCType.pdf")), height=4, width=4.2)
+
+qcut <- .01
+
+for (mm in seq(length(mmethods2))) {
+
+  method <- mmethods2[mm]
+  
+  bs <- Labs[,"bs"]
+  sub_hemi <- gsub(".*-", "", Labs[seq(401, 419),"label"])
+  sub_hemi <- c("left", "right", "subcort")[match(sub_hemi, c("L", "R", "Brain Stem"))]
+  bs[seq(401, 419)] <- sub_hemi
+  bs <- outer(bs, bs, paste0)
+  c_gg <- data.frame(
+    x = a$meanFC[,"None__DCT0"],
+    y = a$meanFC[,"MPCC2__06P_DCT4"],
+    z = a$meanFC[,method],
+    bs = bs[upper.tri(bs)]
+  )
+  c_gg$diff <- c_gg$y - c_gg$x
+  c_gg$diff2 <- c_gg$z - c_gg$y
+  c_gg$bs <- vapply(c_gg$bs, function(x){switch(x,
+    `leftleft` = "hIntra",
+    `leftright` = "hInter",
+    `leftsubcort` = "sInter",
+    `rightleft` = "hInter",
+    `rightright` = "hIntra",
+    `rightsubcort` = "sInter",
+    `subcortleft` = "sIntra",
+    `subcortright` = "sInter",
+    `subcortsubcort` = "sInter" #sIntra
+  )}, "")
+  
+  c_gg$bs <- factor(
+    c_gg$bs, c("hIntra", "hInter", "sInter", "sIntra"),
+    labels= c("Intra-hemispheric", "Inter-hemispheric", "With subcortex", "NotUsed")
+  )
+  
+  c_gg <- subset(c_gg, bs %in% c("Intra-hemispheric", "Inter-hemispheric"))
+  
+  c_gg_qcut <- c_gg
+  c_gg_q <- vector("list", length(levels(c_gg$bs)))
+  for (ii in seq(length(levels(c_gg$bs)))) {
+    bsl <- levels(c_gg$bs)[ii]
+    q <- quantile(subset(c_gg, bs==bsl)$x, c(qcut, 1-qcut))
+    c_gg_qcut <- subset(c_gg_qcut, (bs!=bsl) | (x > q[1] & x < q[2]))
+    c_gg_q[[ii]] <- data.frame(x=q, q=c(qcut, 1-qcut), bs=bsl)
+  }
+  c_gg_q <- do.call(rbind, c_gg_q[seq(2)])
+  
+  p1 <- ggplot(c_gg, aes(x=x, y=diff, color=bs)) + 
+    geom_point(aes(shape=bs), alpha=.03, size=3) + 
+    scale_shape_manual(values=c(4,16), guide="none") +
+    cowplot::theme_cowplot() + 
+    scale_y_continuous(breaks=c(-.1, 0, .1, .2), labels=c("-0.1", "0", ".1", "0.2")) +
+    coord_cartesian(xlim=c(0, .7), ylim=c(-0.12, .22), expand=TRUE) +
+    #coord_equal() + 
+    #geom_vline(aes(xintercept=x, color=bs), data=c_gg_q) +
+    geom_hline(yintercept=0, color="black", linetype="dashed") +
+    #geom_line(aes(x=x, y=y), data=data.frame(x=seq(0, 1), y=seq(0, 1)), color="black", linetype="dashed") +
+    scale_color_manual(values=c("#000000", "#888888", "#EEEEEE"), name="") +
+    geom_smooth(data=c_gg_qcut, method="loess", size=1) +
+    theme(
+      legend.position="bottom", 
+      axis.title.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 0))
+    ) +
+    guides(color=guide_legend(nrow=1)) +
+    xlab("FC after MPP") + ylab("FC change due to CC2 denoising") + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+  
+  p2 <- ggplot(c_gg, aes(y=bs, x=diff, fill=bs)) + geom_boxplot(position="identity", width=.6) +
+    cowplot::theme_cowplot() +
+    scale_fill_manual(values=c("#000000", "#888888", "#EEEEEE"), name="") +
+    xlab("FC change due to CC2 denoising") + 
+    theme(legend.position="bottom", axis.text.y=element_blank()) + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+
+  
+  # pc1 <- cowplot::plot_grid(p2, NULL, p1, ncol=1, rel_heights = c(1.2, -.1, 4), align="hv", axis="tblr")
+  
+  c_gg_qcut <- c_gg
+  c_gg_q <- vector("list", length(levels(c_gg$bs)))
+  for (ii in seq(length(levels(c_gg$bs)))) {
+    bsl <- levels(c_gg$bs)[ii]
+    q <- quantile(subset(c_gg, bs==bsl)$y, c(qcut, 1-qcut))
+    c_gg_qcut <- subset(c_gg_qcut, (bs!=bsl) | (y > q[1] & y < q[2]))
+    c_gg_q[[ii]] <- data.frame(x=q, q=c(qcut, 1-qcut), bs=bsl)
+  }
+  c_gg_q <- do.call(rbind, c_gg_q[seq(2)])
+  
+  
+  p3 <- ggplot(c_gg, aes(x=y, y=diff2, color=bs)) + 
+    geom_point(aes(shape=bs), alpha=.03, size=3) + 
+    scale_shape_manual(values=c(4,16), guide="none") +
+    cowplot::theme_cowplot() + 
+    scale_y_continuous(breaks=c(-.01, 0, .01), labels=c("-.01", "0", ".01")) +
+    coord_cartesian(xlim=c(.1, .7), ylim=c(-.01, .01), expand=TRUE) +
+    #coord_equal() + 
+    geom_hline(yintercept=0, color="black", linetype="dashed") +
+    #geom_line(aes(x=x, y=y), data=data.frame(x=seq(0, 1), y=seq(0, 1)), color="black", linetype="dashed") +
+    scale_color_manual(values=c("#000000", "#888888", "#EEEEEE"), name="") +
+    geom_smooth(data=c_gg_qcut, method="loess", size=1) +
+    theme(
+      legend.position="bottom", 
+      axis.title.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 0))
+    ) +
+    xlab("FC after baseline denoising") + ylab(paste0("FC change due to scrubbing (", names(mmethods2)[mm], ")")) + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+  
+  p4 <- ggplot(c_gg, aes(y=bs, x=diff2, fill=bs)) + geom_boxplot(position="identity", width=.6) +
+    cowplot::theme_cowplot() +
+    scale_fill_manual(values=c("#000000", "#888888", "#EEEEEE"), name="") +
+    xlab("FC change due to scrubbing") + 
+    theme(legend.position="bottom", axis.text.y=element_blank()) + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+
+  pc2 <- cowplot::plot_grid(p4, NULL, p3, ncol=1, rel_heights = c(1.2, -.1, 4), align="hv", axis="tblr")
+  
+  if (mm == 1) { print(p1); print(p2) }
+  print(p3); print(p4)
+     
+}
+
+#pc1
+#pc2
+#plot_grid(NULL, cowplot::get_legend(p1), ncol=1)
+#cowplot::plot_grid(p1, p2, ncol=2, rel_widths = c(1,1))
+
+dev.off()
+```
+
+```{r}
+GeomSplitViolin <- ggproto("GeomSplitViolin", GeomViolin, 
+                           draw_group = function(self, data, ..., draw_quantiles = NULL) {
+  data <- transform(data, xminv = x - violinwidth * (x - xmin), xmaxv = x + violinwidth * (xmax - x))
+  grp <- data[1, "group"]
+  newdata <- plyr::arrange(transform(data, x = if (grp %% 2 == 1) xminv else xmaxv), if (grp %% 2 == 1) y else -y)
+  newdata <- rbind(newdata[1, ], newdata, newdata[nrow(newdata), ], newdata[1, ])
+  newdata[c(1, nrow(newdata) - 1, nrow(newdata)), "x"] <- round(newdata[1, "x"])
+
+  if (length(draw_quantiles) > 0 & !scales::zero_range(range(data$y))) {
+    stopifnot(all(draw_quantiles >= 0), all(draw_quantiles <=
+      1))
+    quantiles <- ggplot2:::create_quantile_segment_frame(data, draw_quantiles)
+    aesthetics <- data[rep(1, nrow(quantiles)), setdiff(names(data), c("x", "y")), drop = FALSE]
+    aesthetics$alpha <- rep(1, nrow(quantiles))
+    both <- cbind(quantiles, aesthetics)
+    quantile_grob <- GeomPath$draw_panel(both, ...)
+    ggplot2:::ggname("geom_split_violin", grid::grobTree(GeomPolygon$draw_panel(newdata, ...), quantile_grob))
+  }
+  else {
+    ggplot2:::ggname("geom_split_violin", GeomPolygon$draw_panel(newdata, ...))
+  }
+})
+
+geom_split_violin <- function(mapping = NULL, data = NULL, stat = "ydensity", position = "identity", ..., 
+                              draw_quantiles = NULL, trim = TRUE, scale = "area", na.rm = FALSE, 
+                              show.legend = NA, inherit.aes = TRUE) {
+  layer(data = data, mapping = mapping, stat = stat, geom = GeomSplitViolin, 
+        position = position, show.legend = show.legend, inherit.aes = inherit.aes, 
+        params = list(trim = trim, scale = scale, draw_quantiles = draw_quantiles, na.rm = na.rm, ...))
+}
+```
+
+```{r}
+pdf(plt_fmt(paste0("FC_byFCType_onDiag.pdf")), height=4, width=2.6)
+
+qcut <- .01
+
+for (mm in seq(length(mmethods2))) {
+
+  method <- mmethods2[mm]
+  
+  bs <- Labs[,"bs"]
+  sub_hemi <- gsub(".*-", "", Labs[seq(101, 119),"label"])
+  sub_hemi <- c("left", "right", "subcort")[match(sub_hemi, c("L", "R", "Brain Stem"))]
+  bs[seq(101, 119)] <- sub_hemi
+  bs <- outer(bs, bs, paste0)
+  c_gg <- data.frame(
+    x = a$meanFC[,"None__DCT0"],
+    y = a$meanFC[,"CompCor__PC02_withCblm_DCT4"],
+    z = a$meanFC[,method],
+    bs = bs[upper.tri(bs)]
+  )
+  c_gg$diff <- c_gg$y - c_gg$x
+  c_gg$diff2 <- c_gg$z - c_gg$y
+  c_gg$bs <- vapply(c_gg$bs, function(x){switch(x,
+    `leftleft` = "hIntra",
+    `leftright` = "hInter",
+    `leftsubcort` = "sInter",
+    `rightleft` = "hInter",
+    `rightright` = "hIntra",
+    `rightsubcort` = "sInter",
+    `subcortleft` = "sIntra",
+    `subcortright` = "sInter",
+    `subcortsubcort` = "sInter" #sIntra
+  )}, "")
+  
+  c_gg$bs <- factor(
+    c_gg$bs, rev(c("hIntra", "hInter", "sInter", "sIntra")),
+    labels= rev(c("Intra-hemispheric", "Inter-hemispheric", "With subcortex", "NotUsed"))
+  )
+  
+  net_mask <- outer(Labs$network, Labs$network, function(x,y){ifelse(x==y,x,0)})
+  c_gg$net <- net_mask[upper.tri(net_mask)]
+  c_gg$net <- factor(c_gg$net, levels=seq(0,10), labels=c("NA", names(Labs2)))
+  hem_mask <- c_gg$bs %in% c("Intra-hemispheric", "Inter-hemispheric")
+  c_gg <- c_gg[c_gg$net!="NA" & hem_mask,]
+
+  p3 <- ggplot(c_gg, aes(x=net, y=diff, fill=bs, color=net)) + 
+    geom_raster(data=data.frame(
+       diff=rep(0, 8), 
+       net=factor(levels(gg_df$part)[-9], levels(gg_df$part)[-9])
+    ), fill=Labs2[levels(gg_df$part)[-9]]) +
+    geom_raster(data=data.frame(
+       diff=rep(.11, 8), 
+       net=factor(levels(gg_df$part)[-9], levels(gg_df$part)[-9])
+    ), fill="white", alpha=.9) +
+    geom_split_violin(alpha=1) +
+    stat_summary(fun = mean, fun.min = mean, fun.max = mean,
+                 geom = "crossbar", 
+                 width = 0.25,
+                 position = position_dodge(width = .25),
+    ) +
+    cowplot::theme_cowplot() + 
+    geom_vline(xintercept=0, color="black", linetype="dashed") +
+    scale_color_manual(values=Labs2) +
+    scale_fill_manual(values=c("#FFFFFF", "#CCCCCC")) +
+    theme(legend.position = "bottom") +
+    xlab(paste("Change in FC due to denoising", method)) +
+    coord_flip(ylim = c(-.4, .4), expand=FALSE)
+  
+  p6 <- ggplot(c_gg, aes(x=net, y=diff2, fill=bs, color=net)) + 
+    geom_raster(data=data.frame(
+       diff2=rep(.01, 8), 
+       net=factor(levels(gg_df$part)[-9], levels(gg_df$part)[-9])
+    ), fill=Labs2[levels(gg_df$part)[-9]]) +
+    geom_raster(data=data.frame(
+       diff2=rep(.481, 8), 
+       net=factor(levels(gg_df$part)[-9], levels(gg_df$part)[-9])
+    ), fill="white", alpha=.9) +
+    geom_split_violin(alpha=1) +
+    stat_summary(fun = mean, fun.min = mean, fun.max = mean,
+                 geom = "crossbar", 
+                 width = 0.25,
+                 position = position_dodge(width = .25),
+    ) +
+    cowplot::theme_cowplot() + 
+    geom_vline(xintercept=0, color="black", linetype="dashed") +
+    scale_color_manual(values=Labs2) +
+    scale_fill_manual(values=c("#FFFFFF", "#CCCCCC")) +
+    theme(legend.position = "bottom") +
+    xlab(paste("Change in FC due to scrubbing", method)) +
+    coord_flip(ylim = c(-.02, .02), expand=FALSE)
+  
+  if (mm == 1) { print(p3) }
+  print(p6)
+     
+}
+
+dev.off()
+```
+
+```{r}
+pdf(plt_fmt(paste0("FC_byFCType_thin.pdf")), height=4, width=2.8)
+
+qcut <- .01
+
+for (mm in seq(length(mmethods2))) {
+
+  method <- mmethods2[mm]
+  
+  bs <- Labs[,"bs"]
+  sub_hemi <- gsub(".*-", "", Labs[seq(101, 119),"label"])
+  sub_hemi <- c("left", "right", "subcort")[match(sub_hemi, c("L", "R", "Brain Stem"))]
+  bs[seq(101, 119)] <- sub_hemi
+  bs <- outer(bs, bs, paste0)
+  c_gg <- data.frame(
+    x = a$meanFC[,"None__DCT0"],
+    y = a$meanFC[,"CompCor__PC02_withCblm_DCT4"],
+    z = a$meanFC[,method],
+    bs = bs[upper.tri(bs)]
+  )
+  c_gg$diff <- c_gg$y - c_gg$x
+  c_gg$diff2 <- c_gg$z - c_gg$y
+  c_gg$bs <- vapply(c_gg$bs, function(x){switch(x,
+    `leftleft` = "hIntra",
+    `leftright` = "hInter",
+    `leftsubcort` = "sInter",
+    `rightleft` = "hInter",
+    `rightright` = "hIntra",
+    `rightsubcort` = "sInter",
+    `subcortleft` = "sIntra",
+    `subcortright` = "sInter",
+    `subcortsubcort` = "sInter" #sIntra
+  )}, "")
+  
+  c_gg$bs <- factor(
+    c_gg$bs, c("hIntra", "hInter", "sInter", "sIntra"),
+    labels= c("Intra-hemispheric", "Inter-hemispheric", "With subcortex", "NotUsed")
+  )
+  
+  c_gg <- subset(c_gg, bs %in% c("Intra-hemispheric", "Inter-hemispheric"))
+  
+  c_gg_qcut <- c_gg
+  c_gg_q <- vector("list", length(levels(c_gg$bs)))
+  for (ii in seq(length(levels(c_gg$bs)))) {
+    bsl <- levels(c_gg$bs)[ii]
+    q <- quantile(subset(c_gg, bs==bsl)$x, c(qcut, 1-qcut))
+    c_gg_qcut <- subset(c_gg_qcut, (bs!=bsl) | (x > q[1] & x < q[2]))
+    c_gg_q[[ii]] <- data.frame(x=q, q=c(qcut, 1-qcut), bs=bsl)
+  }
+  c_gg_q <- do.call(rbind, c_gg_q[seq(2)])
+  
+  p1 <- ggplot(c_gg, aes(x=x, y=diff, color=bs)) + 
+    geom_point(aes(shape=bs), alpha=.03, size=3) + 
+    scale_shape_manual(values=c(4,16), guide=FALSE) +
+    cowplot::theme_cowplot() + 
+    scale_y_continuous(breaks=c(-.2, 0, .2), labels=c("-0.2", "0", "0.2")) +
+    coord_cartesian(xlim=c(.1, .7), ylim=c(-0.2, .2), expand=TRUE) +
+    #coord_equal() + 
+    #geom_vline(aes(xintercept=x, color=bs), data=c_gg_q) +
+    geom_hline(yintercept=0, color="black", linetype="dashed") +
+    #geom_line(aes(x=x, y=y), data=data.frame(x=seq(0, 1), y=seq(0, 1)), color="black", linetype="dashed") +
+    scale_color_manual(values=c("#000000", "#888888", "#EEEEEE"), name="") +
+    geom_smooth(data=c_gg_qcut, method="loess", size=1) +
+    theme(
+      legend.position="bottom", 
+      axis.title.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 0))
+    ) +
+    guides(color=guide_legend(nrow=1)) +
+    xlab("FC after MPP") + ylab("FC change due to CC2 denoising") + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+  
+  p2 <- ggplot(c_gg, aes(y=bs, x=diff, fill=bs)) + geom_boxplot(position="identity", width=.6) +
+    cowplot::theme_cowplot() +
+    scale_fill_manual(values=c("#000000", "#888888", "#EEEEEE"), name="") +
+    xlab("FC change due to CC2 denoising") + 
+    theme(legend.position="bottom", axis.text.y=element_blank()) + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+
+  
+  # pc1 <- cowplot::plot_grid(p2, NULL, p1, ncol=1, rel_heights = c(1.2, -.1, 4), align="hv", axis="tblr")
+  
+  c_gg_qcut <- c_gg
+  c_gg_q <- vector("list", length(levels(c_gg$bs)))
+  for (ii in seq(length(levels(c_gg$bs)))) {
+    bsl <- levels(c_gg$bs)[ii]
+    q <- quantile(subset(c_gg, bs==bsl)$y, c(qcut, 1-qcut))
+    c_gg_qcut <- subset(c_gg_qcut, (bs!=bsl) | (y > q[1] & y < q[2]))
+    c_gg_q[[ii]] <- data.frame(x=q, q=c(qcut, 1-qcut), bs=bsl)
+  }
+  c_gg_q <- do.call(rbind, c_gg_q[seq(2)])
+  
+  
+  p3 <- ggplot(c_gg, aes(x=y, y=diff2, color=bs)) + 
+    geom_point(aes(shape=bs), alpha=.03, size=3) + 
+    scale_shape_manual(values=c(4,16), guide=FALSE) +
+    cowplot::theme_cowplot() + 
+    scale_y_continuous(breaks=c(-.01, 0, .01), labels=c("-.01", "0", ".01")) +
+    coord_cartesian(xlim=c(.1, .7), ylim=c(-.01, .01), expand=TRUE) +
+    #coord_equal() + 
+    geom_hline(yintercept=0, color="black", linetype="dashed") +
+    #geom_line(aes(x=x, y=y), data=data.frame(x=seq(0, 1), y=seq(0, 1)), color="black", linetype="dashed") +
+    scale_color_manual(values=c("#000000", "#888888", "#EEEEEE"), name="") +
+    geom_smooth(data=c_gg_qcut, method="loess", size=1) +
+    theme(
+      legend.position="bottom", 
+      axis.title.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 0))
+    ) +
+    xlab("FC after baseline denoising") + ylab(paste0("FC change due to scrubbing (", names(mmethods2)[mm], ")")) + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+  
+  p4 <- ggplot(c_gg, aes(y=bs, x=diff2, fill=bs)) + geom_boxplot(position="identity", width=.6) +
+    cowplot::theme_cowplot() +
+    scale_fill_manual(values=c("#000000", "#888888", "#EEEEEE"), name="") +
+    xlab("FC change due to scrubbing") + 
+    theme(legend.position="bottom", axis.text.y=element_blank()) + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+
+  pc2 <- cowplot::plot_grid(p4, NULL, p3, ncol=1, rel_heights = c(1.2, -.1, 4), align="hv", axis="tblr")
+  
+  if (mm == 1) { print(p1); print(p2) }
+  print(p3); print(p4)
+     
+}
+
+dev.off()
+```
+
+```{r}
+pdf(plt_fmt(paste0("FC_byFCType2.pdf")), height=4, width=4.2)
+
+qcut <- .01
+
+for (mm in seq(length(mmethods2))) {
+
+  method <- mmethods2[mm]
+  
+  bs <- Labs[,"bs"]
+  bs <- outer(bs, bs, paste0)
+  c_gg <- data.frame(
+    x = a$meanFC[,"None__DCT0"],
+    y = a$meanFC[,"CompCor__PC02_withCblm_DCT4"],
+    z = a$meanFC[,method],
+    bs = bs[upper.tri(bs)]
+  )
+  c_gg$diff <- c_gg$y - c_gg$x
+  c_gg$diff2 <- c_gg$z - c_gg$y
+  c_gg$bs <- vapply(c_gg$bs, function(x){switch(x,
+    `leftleft` = "C-C",
+    `leftright` = "C-C",
+    `leftsubcort` = "C-SC",
+    `rightleft` = "C-C",
+    `rightright` = "C-C",
+    `rightsubcort` = "C-SC",
+    `subcortleft` = "C-SC",
+    `subcortright` = "C-SC",
+    `subcortsubcort` = "SC-SC"
+  )}, "")
+  
+  c_gg$bs <- factor(
+    c_gg$bs, c("C-C", "C-SC", "SC-SC")
+  )
+  
+  c_gg_qcut <- c_gg
+  c_gg_q <- vector("list", length(levels(c_gg$bs)))
+  for (ii in seq(length(levels(c_gg$bs)))) {
+    bsl <- levels(c_gg$bs)[ii]
+    q <- quantile(subset(c_gg, bs==bsl)$x, c(qcut, 1-qcut))
+    c_gg_qcut <- subset(c_gg_qcut, (bs!=bsl) | (x > q[1] & x < q[2]))
+    c_gg_q[[ii]] <- data.frame(x=q, q=c(qcut, 1-qcut), bs=bsl)
+  }
+  c_gg_q <- do.call(rbind, c_gg_q[seq(2)])
+  
+  p1 <- ggplot(c_gg, aes(x=x, y=diff, color=bs)) + 
+    geom_point(aes(shape=bs), alpha=.03, size=3) + 
+    cowplot::theme_cowplot() + 
+    scale_y_continuous(breaks=c(-.2, 0, .2), labels=c("-0.2", "0", "0.2")) +
+    coord_cartesian(xlim=c(.1, .7), ylim=c(-0.1, .2), expand=TRUE) +
+    #coord_equal() + 
+    #geom_vline(aes(xintercept=x, color=bs), data=c_gg_q) +
+    geom_hline(yintercept=0, color="black", linetype="dashed") +
+    #geom_line(aes(x=x, y=y), data=data.frame(x=seq(0, 1), y=seq(0, 1)), color="black", linetype="dashed") +
+    scale_color_manual(values=c("#000000", "#888888", "#ff9671"), name="") +
+    geom_smooth(data=c_gg_qcut, method="loess", size=1) +
+    theme(
+      legend.position="bottom", 
+      axis.title.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 0))
+    ) +
+    guides(color=guide_legend(nrow=1)) +
+    xlab("FC after MPP") + ylab("FC change due to CC2 denoising") + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+  
+  c_gg2 <- subset(tidyr::pivot_longer(c_gg, seq(3)), name!="z")
+  p2 <- ggplot(c_gg2, aes(y=bs, x=value, fill=bs, color=name)) + 
+    geom_boxplot(position="dodge", width=.6) +
+    cowplot::theme_cowplot() +
+    scale_color_manual(values=c("black", "black", "black"), name="") +
+    scale_fill_manual(values=c("#000000", "#888888", "#ff9671"), name="") +
+    xlab("FC after MPP / FC after CC2") + 
+    theme(legend.position="bottom", axis.text.y=element_blank()) + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+  
+  # pc1 <- cowplot::plot_grid(p2, NULL, p1, ncol=1, rel_heights = c(1.2, -.1, 4), align="hv", axis="tblr")
+  
+  c_gg_qcut <- c_gg
+  c_gg_q <- vector("list", length(levels(c_gg$bs)))
+  for (ii in seq(length(levels(c_gg$bs)))) {
+    bsl <- levels(c_gg$bs)[ii]
+    q <- quantile(subset(c_gg, bs==bsl)$y, c(qcut, 1-qcut))
+    c_gg_qcut <- subset(c_gg_qcut, (bs!=bsl) | (y > q[1] & y < q[2]))
+    c_gg_q[[ii]] <- data.frame(x=q, q=c(qcut, 1-qcut), bs=bsl)
+  }
+  c_gg_q <- do.call(rbind, c_gg_q[seq(2)])
+  
+  
+  p3 <- ggplot(c_gg, aes(x=y, y=diff2, color=bs)) + 
+    geom_point(aes(shape=bs), alpha=.03, size=3) + 
+    cowplot::theme_cowplot() + 
+    scale_y_continuous(breaks=c(-.01, 0, .01), labels=c("-.01", "0", ".01")) +
+    coord_cartesian(xlim=c(.1, .7), ylim=c(-.01, .01), expand=TRUE) +
+    #coord_equal() + 
+    geom_hline(yintercept=0, color="black", linetype="dashed") +
+    #geom_line(aes(x=x, y=y), data=data.frame(x=seq(0, 1), y=seq(0, 1)), color="black", linetype="dashed") +
+    scale_color_manual(values=c("#000000", "#888888", "#ff9671"), name="") +
+    geom_smooth(data=c_gg_qcut, method="loess", size=1) +
+    theme(
+      legend.position="bottom", 
+      axis.title.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 0))
+    ) +
+    xlab("FC after baseline denoising") + ylab(paste0("FC change due to scrubbing (", names(mmethods2)[mm], ")")) + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+  
+  c_gg2 <- subset(tidyr::pivot_longer(c_gg, seq(3)), name!="x")
+  p2 <- ggplot(c_gg2, aes(y=bs, x=value, fill=bs, color=name)) + 
+    geom_boxplot(position="dodge", width=.6) +
+    cowplot::theme_cowplot() +
+    scale_color_manual(values=c("black", "black", "black"), name="") +
+    scale_fill_manual(values=c("#000000", "#888888", "#ff9671"), name="") +
+    xlab("FC after CC2 / FC after scrubbing") + 
+    theme(legend.position="bottom", axis.text.y=element_blank()) + 
+    guides(color=guide_legend(override.aes=list(size=3, fill=NA), nrow=1))
+
+  if (mm == 1) { print(p1); print(p2) }
+  print(p3); print(p4)
+     
+}
+
+dev.off()
+```
+
+# ICC
+
+```{r}
+plt_idx <- plt_idx + 1
+```
+
+### Value
+
+```{r}
+pdf(plt_fmt(paste0("ICC_dupe.pdf")))
+
+for (ii in seq(length(mmethods))) {
+  method_name <- mmethods[ii]
+  method_name2 <- names(mmethods)[ii]
+  cat(method_name2, "\t")
+  
+  q <- ggcorrplot2(
+    a$ICC[,method_name], coloring$sequential,
+    paste("ICC:", method_name2), "ICC", 
+    divColor="white", lim=c(0, lim_ICC)
+  )
+  print(q)
+  
+} 
+
+dev.off()
+```
+
+### onSurf
+
+```{r}
+cii0 <- ciftiTools:::make_xifti(
+  NetMat$data$cortex_left, NetMat$data$cortex_left!=0,
+  NetMat$data$cortex_right, NetMat$data$cortex_right!=0
+)
+
+q <- a$ICC[,"Lev___ICA_kurt___4"] - a$ICC[,"Base"]
+
+makePlot <- function(dat, cii=cii0, intranet=FALSE, ...){
+  mat <- cor_mat(dat, names=Labs$label)
+  if (intranet) { mat[!c(outer(Labs$network, Labs$network, `==`))] <- NA }
+  z <- rowMeans(mat, na.rm=TRUE)
+  cii$data$cortex_left[] <- z[cii$data$cortex_left[]]
+  cii$data$cortex_right[] <- z[cii$data$cortex_right[]]
+  plot(cii, ...)
+}
+efigs_pfx <- "~/../Desktop/Exploratory-Figures/p100_CC2MP6_meanICC_"
+makePlot(q, zlim=c(-.03, .03), title="P-ICA", fname=paste0(efigs_pfx, "P-ICA"))
+makePlot(q, intranet=TRUE, zlim=c(-.03, .03), title="P-ICA, intranet", fname=paste0(efigs_pfx, "P-ICA_intranet"))
+```
+
+### Var decomp
+
+```{r}
+
+vd = readRDS(file.path(dir_analysis, "reliabilityII", "CC2MP6.rds"))
+
+cdrev <- function(limits=c(-1,1), ...){ 
+  scale_fill_gradientn(
+    colors=rev(ciftiTools::ROY_BIG_BL()$color), 
+    values=ciftiTools::ROY_BIG_BL()$value, limits=limits, ...
+  ) 
+}
+
+for (what in c("MSB", "MSR")) {
+
+  pdf(plt_fmt(paste0(what, ".pdf")))
+  for (ii in seq(length(mmethods4))) {
+    method_name <- mmethods4[ii]
+    method_name2 <- names(mmethods4)[ii]
+    cat(method_name2, "\t")
+    
+    wlim <- c(MSB=.3, MSR=.05)[what]
+    q <- ggcorrplot2(
+      vd[,what, method_name], coloring$sequential,
+      paste(paste0(what, ":"), method_name2), what, 
+      divColor="white", lim=c(0, wlim)
+    )
+    print(q)
+  } 
+  dev.off()
+  
+  pdf(plt_fmt(paste0(what, "_diff.pdf")))
+  for (ii in seq(length(mmethods2))) {
+    method_name <- mmethods2[ii]
+    method_name2 <- names(mmethods2)[ii]
+    cat(method_name2, "\t")
+    
+    wlim <- c(MSB=.03, MSR=.005)[what]
+    wfun <- list(MSB=coloring$diverging, MSR=cdrev)[[what]]
+    q <- ggcorrplot2(
+      vd[,what, method_name] - vd[,what, "Base"], wfun,
+      paste(paste0(what, " change from baseline:"), method_name2), paste(what, "change"), 
+      divColor="white", lim=c(-wlim, wlim), diagVal=0
+    )
+    print(q)
+  } 
+  dev.off()
+}
+```
+
+### Value change
+
+```{r}
+pdf(plt_fmt(paste0("ICC_Change.pdf")))
+
+for (ii in seq(length(mmethods2))) {
+  method_name <- mmethods2[ii]
+  method_name2 <- names(mmethods2)[ii]
+  cat(method_name2, "\t")
+  
+  q <- ggcorrplot2(
+    a$ICC[,method_name] - a$ICC[,"MPCC2__06P_DCT4"], coloring$diverging,
+    paste("ICC improvement from baseline:", method_name2), "ICC change", 
+    divColor="white", lim=lim_cICC, diagVal=0
+  )
+  print(q)
+  
+} 
+
+dev.off()
+```
+
+### Value change due to scan length
+
+```{r}
+pdf(plt_fmt(paste0("ICC_Mean_Change_from400.pdf")))
+for (ii in seq(length(mmethods4))) {
+  method_name <- mmethods4[ii]
+  method_name2 <- names(mmethods4)[ii]
+  cat(method_name2, "\t")
+  q <- ggcorrplot2(
+    a$ICC[,method_name] - b$ICC[[1]][,method_name], coloring$diverging3,
+    paste("Change in mean ICC from t=400:", method_name2), "ICC change", 
+    lim=.3, diagVal=0, divColor="white"
+  )
+  print(q)
+  
+} 
+dev.off()
+```
+
+```{r}
+pdf(plt_fmt(paste0("ICC_Mean_Change_from800.pdf")))
+for (ii in seq(length(mmethods4))) {
+  method_name <- mmethods4[ii]
+  method_name2 <- names(mmethods4)[ii]
+  cat(method_name2, "\t")
+  q <- ggcorrplot2(
+    a$ICC[,method_name] - b$ICC[[2]][,method_name], coloring$diverging3,
+    paste("Change in mean ICC from t=800:", method_name2), "ICC change", 
+    lim=.3, diagVal=0, divColor="white"
+  )
+  print(q)
+  
+} 
+dev.off()
+```
+
+### Value change w/ lev cutoff
+
+```{r}
+pdf(plt_fmt(paste0("ICC_Change_LevCut.pdf")))
+
+cuts <- seq(10)
+
+for (cut in cuts) {
+  method_name <- paste0("Lev___ICA_kurt___", cut)
+  method_name2 <- cut
+  cat(method_name2, "\t")
+  
+  mat <- a$ICC[,method_name] - a$ICC[,"MPCC2__06P_DCT4"]
+  mat <- pmax(pmin(mat, lim_cICC), -lim_cICC)
+  mat <- cor_mat(mat, names=Labs$label, newOrder=order(Labs$idx2))
+  
+  mat2 <- mat
+  for (jj in seq(nrow(gg_pdv)+1)) {
+    for (kk in seq(nrow(gg_pdv)+1)) {
+      mat2[seq(pdv[jj], pdv[jj+1]-1), 120 - seq(pdv[kk], pdv[kk+1]-1)] <- mean(
+        mat2[seq(pdv[jj], pdv[jj+1]-1), 120 - seq(pdv[kk], pdv[kk+1]-1)], na.rm=TRUE
+      )
+    }
+  }
+  
+  mat[is.na(mat)] <- 0
+  
+  mat[seq(nrow(mat)), rev(seq(ncol(mat)))][lower.tri(mat)] <- mat2[seq(nrow(mat)), rev(seq(ncol(mat)))][lower.tri(mat)]
+  
+  mat[] <- pmax(pmin(mat, lim_cICC), -lim_cICC)
+  
+  q <- ggcorrplot(mat, outline.color = "#00000000", title=paste("ICC improvement from baseline:", method_name2), digits=10) + 
+    scale_y_discrete(labels=cor_mat_ylabs) +
+    coord_equal(xlim=c(-4, parc_res2+.65), ylim=c(.5, parc_res2+5), expand=FALSE) +
+    coloring$diverging(
+      c(-lim_cICC, lim_cICC), guide=guide_colorbar(ticks.colour = "white", ticks.linewidth = 1), 
+      labels = function(x){gsub("0.", ".", x, fixed=TRUE)}, na.value="red"
+    ) +
+    labs(fill="ICC change") +
+    theme(
+      panel.grid.major = element_blank(),
+      axis.text.y = element_text(margin=margin(r=10)),
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      legend.position = "bottom"#, legend.text.align = 1
+    ) +
+    annotate(
+      "rect", xmin=-4, xmax=.5, ymin=parc_res2+.5-seq(nrow(mat)), ymax=parc_res2+.5-seq(nrow(mat))+1,
+      fill=mbar_cols[seq(nrow(mat))]
+    ) +
+    annotate(
+      "rect", ymin=parc_res2+.5, ymax=parc_res2+5, xmin=seq(nrow(mat))-.5, xmax=seq(nrow(mat))+.5,
+      fill=mbar_cols[seq(nrow(mat))]
+    ) +
+    # dividers
+    geom_rect(aes(xmin=xmin, xmax=xmax, ymin=0, ymax=parc_res2+5), data=gg_pdv, fill="white") +
+    geom_rect(aes(ymin=120-xmin, ymax=120-xmax, xmin=-4, xmax=parc_res2+.5), data=gg_pdv, fill="black") + 
+    # four edges
+    annotate("rect", xmin=.35, xmax=.65, ymin=0, ymax=parc_res2+5, fill="white") +
+    annotate("rect", xmin=parc_res2+.35, xmax=parc_res2+.65, ymin=0, ymax=parc_res2+5, fill="white") + 
+    annotate("rect", ymin=.35, ymax=.65, xmin=-4, xmax=parc_res2+.85, fill="white") +
+    annotate("rect", ymin=parc_res2+.35, ymax=parc_res2+.65, xmin=-4, xmax=parc_res2+.85, fill="white") +
+    # separate brain region label color bar
+    annotate("rect", ymin=0, ymax=parc_res2+.65, xmin=-.5, xmax=.35, fill="white") +
+    annotate("rect", ymin=parc_res2+.65, ymax=120.5, xmin=-.5, xmax=parc_res2+.65, fill="white")
+  
+  print(q)
+}
+
+dev.off()
+```
+
+### Value change w/ FD cutoff
+
+```{r}
+cuts <- seq(.2, 1, .1)
+
+pdf(plt_fmt(paste0("ICC_Change_FDCut.pdf")))
+
+for (cut in cuts) {
+  method_name <- paste0("FD___", cut)
+  method_name2 <- cut
+  cat(method_name2, "\t")
+  
+  mat <- a$ICC[,method_name] - a$ICC[,"MPCC2__06P_DCT4"]
+  mat <- pmax(pmin(mat, lim_cICC), -lim_cICC)
+  mat <- cor_mat(mat, names=Labs$label, newOrder=order(Labs$idx2))
+
+  mat2 <- mat
+  for (jj in seq(nrow(gg_pdv)+1)) {
+    for (kk in seq(nrow(gg_pdv)+1)) {
+      mat2[seq(pdv[jj], pdv[jj+1]-1), 120 - seq(pdv[kk], pdv[kk+1]-1)] <- mean(
+        mat2[seq(pdv[jj], pdv[jj+1]-1), 120 - seq(pdv[kk], pdv[kk+1]-1)], na.rm=TRUE
+      )
+    }
+  }
+  
+  mat[is.na(mat)] <- 0
+  
+  mat[seq(nrow(mat)), rev(seq(ncol(mat)))][lower.tri(mat)] <- mat2[seq(nrow(mat)), rev(seq(ncol(mat)))][lower.tri(mat)]
+  
+  mat[] <- pmax(pmin(mat, lim_cICC), -lim_cICC)
+  
+  q <- ggcorrplot(mat, outline.color = "#00000000", title=paste("ICC improvement from baseline:", method_name2), digits=10) + 
+    scale_y_discrete(labels=cor_mat_ylabs) +
+    coord_equal(xlim=c(-4, 119.65), ylim=c(.5, parc_res2+5), expand=FALSE) +
+    coloring$diverging(
+      c(-lim_cICC, lim_cICC), guide=guide_colorbar(ticks.colour = "white", ticks.linewidth = 1), 
+      labels = function(x){gsub("0.", ".", x, fixed=TRUE)}, na.value="red"
+    ) +
+    labs(fill="ICC change") +
+    theme(
+      panel.grid.major = element_blank(),
+      axis.text.y = element_text(margin=margin(r=10)),
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      legend.position = "bottom"#, legend.text.align = 1
+    ) +
+    # annotate(
+    #   "raster", x=seq(119), y=rev(seq(119)), fill="black"
+    # ) +
+    # brain region label color bar
+    annotate(
+      "rect", xmin=-4, xmax=.5, ymin=119.5-seq(nrow(mat)), ymax=119.5-seq(nrow(mat))+1,
+      fill=mbar_cols[seq(nrow(mat))]
+    ) +
+    annotate(
+      "rect", ymin=119.5, ymax=parc_res2+5, xmin=seq(nrow(mat))-.5, xmax=seq(nrow(mat))+.5,
+      fill=mbar_cols[seq(nrow(mat))]
+    ) +
+    # dividers
+    geom_rect(aes(xmin=xmin, xmax=xmax, ymin=0, ymax=parc_res2+5), data=gg_pdv, fill="white") +
+    geom_rect(aes(ymin=120-xmin, ymax=120-xmax, xmin=-4, xmax=119.5), data=gg_pdv, fill="black") + 
+    # four edges
+    annotate("rect", xmin=.35, xmax=.65, ymin=0, ymax=parc_res2+5, fill="white") +
+    annotate("rect", xmin=119.35, xmax=119.65, ymin=0, ymax=parc_res2+5, fill="white") + 
+    annotate("rect", ymin=.35, ymax=.65, xmin=-4, xmax=119.85, fill="white") +
+    annotate("rect", ymin=119.35, ymax=119.65, xmin=-4, xmax=119.85, fill="white") +
+    # separate brain region label color bar
+    annotate("rect", ymin=0, ymax=119.65, xmin=-.5, xmax=.35, fill="white") +
+    annotate("rect", ymin=119.65, ymax=120.5, xmin=-.5, xmax=119.65, fill="white")
+  
+  print(q)
+}
+
+dev.off()
+```
+
+### By network
+
+Baseline
+
+```{r}
+# Get matrix of change in FC.
+y <- cor_mat(
+  a$ICC[,"MPCC2__06P_DCT4"], 
+  names=Labs$label, newOrder=order(Labs$idx2)
+)
+
+# Block diagonals.
+z <- matrix(nrow=8, ncol=8)
+for (jj in seq(nrow(z))) {
+  for (kk in seq(ncol(z))) {
+    z[jj,kk] <- mean(
+      y[seq(pdv[jj], pdv[jj+1]-1), 120 - seq(pdv[kk], pdv[kk+1]-1)], na.rm=TRUE
+    )
+  }
+}
+gg_df <- data.frame(
+  v = c(diag(z), apply(z, 2, mean), mean(z[upper.tri(z)])),
+  part = c(rep(unique(Labs$network3[order(Labs$idx2)]), 2), "Inter-network"),
+  type = c(rep(c("on", "offToo"), each=8), "on")
+)
+
+# Subcortex
+z2 <- apply(y[seq(101, 119),], 1, mean, na.rm=TRUE)
+z2 <- dplyr::summarise(
+  dplyr::group_by(data.frame(x=z2), Labs$group[seq(101, 119)]), 
+  v=mean(x)
+)
+gg_df2 <- data.frame(
+  v = z2$v,
+  part = z2[,1]
+)
+
+# Oragnize
+gg_df$part <- factor(gg_df$part, levels=c(unique(Labs$network3[order(Labs$idx2)]), "Inter-network"))
+
+Labs2 <- Labs[Labs$network_first,]
+Labs2 <- setNames(
+  c(Labs2$network_color, color_Rpals$Set2[4], color_Rpals$Set2[4]), 
+  c(as.character(Labs2$network3), "All", "Inter-network")
+)
+
+colnames(gg_df2) <- c("v", "part")
+
+SLabs2 <- Labs[order(Labs$idx2)[Labs$group_first[order(Labs$idx2)]],]
+gg_df2$part <- factor(gg_df2$part, levels=SLabs2$group, labels=SLabs2$group2)
+SLabs2 <- setNames(SLabs2$group_color, SLabs2$group)
+
+pdf(plt_fmt(paste0("ICC_byNet_Base.pdf")), height=4, width=2.5)
+
+p1 <- ggplot(subset(gg_df, type=="offToo"), aes(y=v, x=part)) + 
+  geom_col(
+    fill=Labs2[levels(gg_df$part)[-9]], 
+    colour="#444444", size=.2, width=.75, position=position_dodge(0.5)) + 
+  geom_hline(yintercept=0, linetype="solid") +
+  geom_hline(yintercept=.2, linetype="dashed") +
+  geom_hline(yintercept=.4, linetype="dashed") +
+  ylab("FC") + ylab("") +
+  scale_y_continuous(breaks=seq(0, 4)/10) +
+  coord_cartesian(ylim=c(0, .52), expand=FALSE) +
+  scale_x_discrete(expand=c(0,0)) +
+  theme_cowplot()
+
+p1
+
+dev.off()
+```
+
+```{r}
+gg_df <- gg_df2 <- vector("list", length(mmethods2))
+for (mm in seq(length(mmethods2))) {
+  # Get matrix of change in FC.
+  y <- cor_mat(
+    a$ICC[,mmethods2[mm]] - a$ICC[,"MPCC2__06P_DCT4"], 
+    names=Labs$label, newOrder=order(Labs$idx2)
+  )
+  
+  # Block diagonals.
+  z <- matrix(nrow=8, ncol=8)
+  for (jj in seq(nrow(z))) {
+    for (kk in seq(ncol(z))) {
+      z[jj,kk] <- mean(
+        y[seq(pdv[jj], pdv[jj+1]-1), 120 - seq(pdv[kk], pdv[kk+1]-1)], na.rm=TRUE
+      )
+    }
+  }
+  gg_df[[mm]] <- data.frame(
+    v = c(diag(z), apply(z, 2, mean), mean(z[upper.tri(z)])),
+    part = c(rep(unique(Labs$network3[order(Labs$idx2)]), 2), "Inter-network"),
+    type = c(rep(c("on", "offToo"), each=8), "on"),
+    method = names(mmethods2)[[mm]]
+  )
+  
+  # Subcortex
+  z2 <- apply(y[seq(101, 119),], 1, mean, na.rm=TRUE)
+  z2 <- dplyr::summarise(
+    dplyr::group_by(data.frame(x=z2), Labs$group[seq(101, 119)]), 
+    v=mean(x)
+  )
+  gg_df2[[mm]] <- data.frame(
+    v = z2$v,
+    part = z2[,1],
+    method = names(mmethods2)[[mm]]
+  )
+}
+gg_df <- do.call(rbind, gg_df)
+gg_df$part <- factor(gg_df$part, levels=c(unique(Labs$network3[order(Labs$idx2)]), "Inter-network"))
+gg_df$method <- factor(gg_df$method, levels=rev(names(mmethods2)))
+
+Labs2 <- Labs[Labs$network_first,]
+Labs2 <- setNames(
+  c(Labs2$network_color, color_Rpals$Set2[4], color_Rpals$Set2[4]), 
+  c(as.character(Labs2$network3), "All", "Inter-network")
+)
+
+gg_df2 <- do.call(rbind, gg_df2)
+gg_df2 <- aggregate(gg_df2$v, by=list(gg_df2[,2], gg_df2$method), mean)
+colnames(gg_df2)[seq(2)] <- c("part", "method")
+
+SLabs2 <- Labs[order(Labs$idx2)[Labs$group_first[order(Labs$idx2)]],]
+gg_df2$part <- factor(gg_df2$part, levels=SLabs2$group, labels=SLabs2$group2)
+SLabs2 <- setNames(SLabs2$group_color, SLabs2$group)
+gg_df2$method <- factor(gg_df2$method, levels=rev(names(mmethods2)))
+
+pdf(plt_fmt(paste0("ICC_Change_byNet_Scrubbing.pdf")), height=5.5, width=9)
+
+p1 <- ggplot(subset(gg_df, type=="offToo"), aes(x=v, y=part)) + 
+  geom_raster(data=data.frame(
+    v=rep(.2, 8), 
+    part=factor(levels(gg_df$part)[-9], levels(gg_df$part)[-9])
+  ), fill=Labs2[levels(gg_df$part)[-9]]) +
+  geom_raster(data=data.frame(
+    v=rep(.49, 8),
+    part=factor(levels(gg_df$part)[-9], levels(gg_df$part)[-9])
+  ), fill="white", alpha=rep(c(.92,.92), 4)) +
+  geom_col(aes(fill=method), colour="#444444", size=.2, width=0.5, position=position_dodge(0.5)) + 
+  geom_vline(xintercept=0, linetype="solid") +
+  xlab("ICC improvement") + ylab("") +
+  coord_cartesian(xlim=c(-.01, .04)) +
+  scale_y_discrete(limits=rev, expand=c(0,0)) +
+  scale_fill_manual(values=myColors, name="", guide=guide_legend(reverse=TRUE)) +
+  theme_cowplot()
+
+p2 <- ggplot(gg_df2, aes(x=x, y=part)) + 
+  geom_raster(data=data.frame(
+    x=rep(.2, 5), 
+    part=factor(levels(gg_df2$part), levels(gg_df2$part))
+  ), fill=SLabs2) +
+  geom_raster(data=data.frame(
+    x=rep(.49, 5),
+    part=factor(levels(gg_df2$part), levels(gg_df2$part))
+  ), fill="white", alpha=rep(.92, 5)) +
+  geom_col(aes(fill=method), colour="#444444", size=.2, width=0.5*5/8, position=position_dodge(0.5*5/8)) + 
+  geom_vline(xintercept=0, linetype="solid") +
+  xlab("ICC improvement") + ylab("") +
+  coord_cartesian(xlim=c(-.01, .04)) +
+  scale_y_discrete(limits=rev, expand=c(0,0)) +
+  scale_fill_manual(values=myColors, name="", guide=guide_legend(reverse=TRUE)) +
+  theme_cowplot()
+
+cowplot::plot_grid(p1 + theme(legend.position = "none"), p2 + theme(legend.position = "none"), nrow=1, align="hv", axis="tlbr")
+plot_grid(NULL, cowplot::get_legend(p1 + scale_y_discrete(expand=c(0,0))), ncol=1)
+
+dev.off()
+```
+
+```{r}
+for (tt in seq(2)) {
+  ttime <- c(400, 800)[tt]
+  
+  gg_df <- gg_df2 <- vector("list", length(mmethods2))
+  for (mm in seq(length(mmethods2))) {
+    # Get matrix of change in FC.
+    y <- cor_mat(
+      b$ICC[[tt]][,mmethods2[mm]] - b$ICC[[tt]][,"Base"], 
+      names=Labs$label, newOrder=order(Labs$idx2)
+    )
+    
+    # Block diagonals.
+    z <- matrix(nrow=8, ncol=8)
+    for (jj in seq(nrow(z))) {
+      for (kk in seq(ncol(z))) {
+        z[jj,kk] <- mean(
+          y[seq(pdv[jj], pdv[jj+1]-1), 120 - seq(pdv[kk], pdv[kk+1]-1)], na.rm=TRUE
+        )
+      }
+    }
+    gg_df[[mm]] <- data.frame(
+      v = c(diag(z), apply(z, 2, mean), mean(z[upper.tri(z)])),
+      part = c(rep(unique(Labs$network3[order(Labs$idx2)]), 2), "Inter-network"),
+      type = c(rep(c("on", "offToo"), each=8), "on"),
+      method = names(mmethods2)[[mm]]
+    )
+    
+    # Subcortex
+    z2 <- apply(y[seq(101, 119),], 1, mean, na.rm=TRUE)
+    z2 <- dplyr::summarise(
+      dplyr::group_by(data.frame(x=z2), Labs$group[seq(101, 119)]), 
+      v=mean(x)
+    )
+    gg_df2[[mm]] <- data.frame(
+      v = z2$v,
+      part = z2[,1],
+      method = names(mmethods2)[[mm]]
+    )
+  }
+  gg_df <- do.call(rbind, gg_df)
+  gg_df$part <- factor(gg_df$part, levels=c(unique(Labs$network3[order(Labs$idx2)]), "Inter-network"))
+  gg_df$method <- factor(gg_df$method, levels=rev(names(mmethods2)))
+  
+  Labs2 <- Labs[Labs$network_first,]
+  Labs2 <- setNames(
+    c(Labs2$network_color, color_Rpals$Set2[4], color_Rpals$Set2[4]), 
+    c(as.character(Labs2$network3), "All", "Inter-network")
+  )
+  
+  gg_df2 <- do.call(rbind, gg_df2)
+  gg_df2 <- aggregate(gg_df2$v, by=list(gg_df2[,2], gg_df2$method), mean)
+  colnames(gg_df2)[seq(2)] <- c("part", "method")
+  
+  SLabs2 <- Labs[order(Labs$idx2)[Labs$group_first[order(Labs$idx2)]],]
+  gg_df2$part <- factor(gg_df2$part, levels=SLabs2$group, labels=SLabs2$group2)
+  SLabs2 <- setNames(SLabs2$group_color, SLabs2$group)
+  gg_df2$method <- factor(gg_df2$method, levels=rev(names(mmethods2)))
+  
+  pdf(plt_fmt(paste0("ICC_Change_byNet_Scrubbing_t", ttime, ".pdf")), height=5.5, width=9)
+  
+  p1 <- ggplot(subset(gg_df, type=="offToo"), aes(x=v, y=part)) + 
+    geom_raster(data=data.frame(
+      v=rep(.2, 8), 
+      part=factor(levels(gg_df$part)[-9], levels(gg_df$part)[-9])
+    ), fill=Labs2[levels(gg_df$part)[-9]]) +
+    geom_raster(data=data.frame(
+      v=rep(.49, 8),
+      part=factor(levels(gg_df$part)[-9], levels(gg_df$part)[-9])
+    ), fill="white", alpha=rep(c(.92,.92), 4)) +
+    geom_col(aes(fill=method), colour="#444444", size=.2, width=0.5, position=position_dodge(0.5)) + 
+    geom_vline(xintercept=0, linetype="solid") +
+    xlab("ICC improvement") + ylab("") +
+    coord_cartesian(xlim=c(-.01, .04)) +
+    scale_y_discrete(limits=rev, expand=c(0,0)) +
+    scale_fill_manual(values=myColors, name="", guide=guide_legend(reverse=TRUE)) +
+    theme_cowplot()
+  
+  p2 <- ggplot(gg_df2, aes(x=x, y=part)) + 
+    geom_raster(data=data.frame(
+      x=rep(.2, 5), 
+      part=factor(levels(gg_df2$part), levels(gg_df2$part))
+    ), fill=SLabs2) +
+    geom_raster(data=data.frame(
+      x=rep(.49, 5),
+      part=factor(levels(gg_df2$part), levels(gg_df2$part))
+    ), fill="white", alpha=rep(.92, 5)) +
+    geom_col(aes(fill=method), colour="#444444", size=.2, width=0.5*5/8, position=position_dodge(0.5*5/8)) + 
+    geom_vline(xintercept=0, linetype="solid") +
+    xlab("ICC improvement") + ylab("") +
+    coord_cartesian(xlim=c(-.01, .04)) +
+    scale_y_discrete(limits=rev, expand=c(0,0)) +
+    scale_fill_manual(values=myColors, name="", guide=guide_legend(reverse=TRUE)) +
+    theme_cowplot()
+  
+  print(cowplot::plot_grid(p1 + theme(legend.position = "none"), p2 + theme(legend.position = "none"), nrow=1, align="hv", axis="tlbr"))
+  print(plot_grid(NULL, cowplot::get_legend(p1 + scale_y_discrete(expand=c(0,0))), ncol=1))
+  
+  dev.off()
+}
+```
+
+### By connection type
+
+```{r}
+qcut <- .01
+
+bs <- Labs[,"bs"]
+bs <- outer(bs, bs, paste0)
+c_gg <- data.frame(
+  x = a$ICC[,"None__DCT0"],
+  y = a$ICC[,"MPCC2__06P_DCT4"],
+  # Yes, other scrubbing methods yield a similar pattern
+  z = a$ICC[,"Lev___ICA_kurt___3"],
+  bs = bs[upper.tri(bs)]
+)
+c_gg$diff <- c_gg$y - c_gg$x
+c_gg$diff2 <- c_gg$z - c_gg$y
+c_gg$bs <- vapply(c_gg$bs, function(x){switch(x,
+  `leftleft` = "C-C",
+  `leftright` = "C-C",
+  `leftsubcort` = "C-SC",
+  `rightleft` = "C-C",
+  `rightright` = "C-C",
+  `rightsubcort` = "C-SC",
+  `subcortleft` = "C-SC",
+  `subcortright` = "C-SC",
+  `subcortsubcort` = "SC-SC"
+)}, "")
+
+c_gg$bs <- factor(
+  c_gg$bs, c("C-C", "C-SC", "SC-SC"),
+  labels= c("C-C", "C-SC", "SC-SC")
+)
+
+c_gg_qcut <- c_gg
+c_gg_q <- vector("list", length(levels(c_gg$bs)))
+for (ii in seq(length(levels(c_gg$bs)))) {
+  bsl <- levels(c_gg$bs)[ii]
+  q <- quantile(subset(c_gg, bs==bsl)$x, c(qcut, 1-qcut))
+  c_gg_qcut <- subset(c_gg_qcut, (bs!=bsl) | (x > q[1] & x < q[2]))
+  c_gg_q[[ii]] <- data.frame(x=q, q=c(qcut, 1-qcut), bs=bsl)
+}
+c_gg_q <- do.call(rbind, c_gg_q[seq(2)])
+
+p1 <- ggplot(c_gg, aes(x=x, y=diff, color=bs)) +
+  geom_point(alpha=.03, size=3) + 
+  cowplot::theme_cowplot() + 
+  scale_y_continuous(breaks=c(0, .3, .6), labels=c("0.0", "0.3", "0.6")) +
+  coord_cartesian(ylim=c(-.1, .6), xlim=c(0, .4)) +
+  #coord_equal() + 
+  geom_hline(yintercept=0, color="black", linetype="dashed") +
+  scale_color_manual(values=c("#be2707", "#ed8618", "grey"), name="") +
+  geom_smooth(data=c_gg_qcut, method="loess", size=1) +
+  theme(
+    legend.position=c(.01, .08), 
+    axis.title.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 0))
+  ) +
+  xlab("ICC after MPP") + ylab("ICC improvement due to denoising") + 
+  guides(color=guide_legend(override.aes=list(size=3, fill=NA), ncol=1))
+
+c_gg2 <- dplyr::summarise(
+  dplyr::group_by(c_gg["diff"], c_gg["bs"]), 
+  v=mean(diff)
+)
+
+p2 <- ggplot(c_gg2, aes(x=bs, y=v)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(limits=c(0, .31), expand=c(0,0)) +
+  xlab("FC type") + ylab("Mean ICC improvement due to denoising") +
+  cowplot::theme_cowplot()
+
+c_gg_qcut <- c_gg
+c_gg_q <- vector("list", length(levels(c_gg$bs)))
+for (ii in seq(length(levels(c_gg$bs)))) {
+  bsl <- levels(c_gg$bs)[ii]
+  q <- quantile(subset(c_gg, bs==bsl)$y, c(qcut, 1-qcut))
+  c_gg_qcut <- subset(c_gg_qcut, (bs!=bsl) | (y > q[1] & y < q[2]))
+  c_gg_q[[ii]] <- data.frame(x=q, q=c(qcut, 1-qcut), bs=bsl)
+}
+c_gg_q <- do.call(rbind, c_gg_q[seq(2)])
+
+p3 <- ggplot(c_gg, aes(x=y, y=diff2)) + #, color=bs 
+  geom_point(alpha=.03, size=3) + 
+  cowplot::theme_cowplot() + 
+  scale_y_continuous(breaks=c(-.04, 0, .04), labels=c(".04", "0", ".04")) +
+  coord_cartesian(ylim=c(-.04, .04), xlim=c(.1, .7)) +
+  #coord_equal() + 
+  geom_hline(yintercept=0, color="black", linetype="dashed") +
+  #geom_line(aes(x=x, y=y), data=data.frame(x=seq(0, 1), y=seq(0, 1)), color="black", linetype="dashed") +
+  scale_color_manual(values=color_greylite, name="") +
+  #scale_color_manual(values=c("#be2707", "#ed8618"), name="") +
+  geom_smooth(data=c_gg_qcut, method="loess", size=1) +
+  theme(
+    legend.position=c(.01, .08), 
+    axis.title.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 0))
+  ) +
+  xlab("ICC after baseline denoising") + ylab("ICC improvement due to scrubbing") + 
+  guides(color=guide_legend(override.aes=list(size=3, fill=NA), ncol=1))
+
+c_gg2 <- dplyr::summarise(
+  dplyr::group_by(c_gg["diff2"], c_gg["bs"]), 
+  v=mean(diff2)
+)
+
+p4 <- ggplot(c_gg2, aes(x=bs, y=v)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(
+    limits=c(0, .031), breaks=seq(0,3)/100, 
+    labels=c("0", ".01", ".02", ".03"), expand=c(0,0)) +
+  xlab("FC type") + ylab("Mean ICC improvement due to scrubbing") +
+  cowplot::theme_cowplot()
+
+pdf(plt_fmt(paste0("ICC_byICCType1.pdf")), height=6, width=5)
+
+p1
+p3
+dev.off()
+
+pdf(plt_fmt(paste0("ICC_byICCType2.pdf")), height=5, width=2.5)
+
+p2
+p4
+dev.off()
+```
+
+```{r}
+qcut <- .01
+
+bs <- Labs[,"bs"]
+sub_hemi <- gsub(".*-", "", Labs[seq(101, 119),"label"])
+sub_hemi <- c("left", "right", "subcort")[match(sub_hemi, c("L", "R", "Brain Stem"))]
+bs[seq(101, 119)] <- sub_hemi
+bs <- outer(bs, bs, paste0)
+c_gg <- data.frame(
+  w = a$meanFC[,"None__DCT0"],
+  x = a$ICC[,"None__DCT0"],
+  y = a$ICC[,"MPCC2__06P_DCT4"],
+  # Yes, other scrubbing methods yield a similar pattern
+  z = a$ICC[,"Lev___ICA_kurt___3"],
+  bs = bs[upper.tri(bs)]
+)
+c_gg$diff <- c_gg$y - c_gg$x
+c_gg$diff2 <- c_gg$z - c_gg$y
+c_gg$bs <- vapply(c_gg$bs, function(x){switch(x,
+  `leftleft` = "Intra-hemisphere",
+  `leftright` = "Inter-hemisphere",
+  `leftsubcort` = "NA",
+  `rightleft` = "Inter-hemisphere",
+  `rightright` = "Intra-hemisphere",
+  `rightsubcort` = "NA",
+  `subcortleft` = "NA",
+  `subcortright` = "NA",
+  `subcortsubcort` = "NA"
+)}, "")
+
+c_gg$bs <- factor(
+  c_gg$bs, c("Intra-hemisphere", "Inter-hemisphere", "NA")
+)
+
+c_gg <- subset(c_gg, bs %in% c("Intra-hemisphere", "Inter-hemisphere"))
+
+c_gg_qcut <- c_gg
+c_gg_q <- vector("list", length(levels(c_gg$bs)))
+for (ii in seq(length(levels(c_gg$bs)))) {
+  bsl <- levels(c_gg$bs)[ii]
+  q <- quantile(subset(c_gg, bs==bsl)$x, c(qcut, 1-qcut))
+  c_gg_qcut <- subset(c_gg_qcut, (bs!=bsl) | (x > q[1] & x < q[2]))
+  c_gg_q[[ii]] <- data.frame(x=q, q=c(qcut, 1-qcut), bs=bsl)
+}
+c_gg_q <- do.call(rbind, c_gg_q[seq(2)])
+
+p1 <- ggplot(c_gg, aes(x=w, y=diff, color=bs)) +
+  geom_point(alpha=.03, size=3) + 
+  cowplot::theme_cowplot() + 
+  scale_y_continuous(breaks=c(0, .3, .6), labels=c("0.0", "0.3", "0.6")) +
+  coord_cartesian(ylim=c(-.1, .6), xlim=c(0, .4)) +
+  #coord_equal() + 
+  geom_hline(yintercept=0, color="black", linetype="dashed") +
+  #geom_line(aes(x=x, y=y), data=data.frame(x=seq(0, 1), y=seq(0, 1)), color="black", linetype="dashed") +
+  #scale_color_manual(values=color_greylite, name="") +
+  scale_color_manual(values=c("#be2707", "#ed8618"), name="") +
+  geom_smooth(data=c_gg_qcut, method="loess", size=1) +
+  theme(
+    legend.position=c(.01, .08), 
+    axis.title.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 0))
+  ) +
+  xlab("FC after MPP") + ylab("ICC improvement due to denoising") + 
+  guides(color=guide_legend(override.aes=list(size=3, fill=NA), ncol=1))
+
+c_gg2 <- dplyr::summarise(
+  dplyr::group_by(c_gg["diff"], c_gg["bs"]), 
+  v=mean(diff)
+)
+
+# To-do change x axis to y?
+p3 <- ggplot(c_gg, aes(x=w, y=diff2, color=bs)) +
+  geom_point(alpha=.03, size=3) + 
+  cowplot::theme_cowplot() + 
+  coord_cartesian(ylim=c(-.05, .1), xlim=c(0, .4)) +
+  #coord_equal() + 
+  geom_hline(yintercept=0, color="black", linetype="dashed") +
+  #geom_line(aes(x=x, y=y), data=data.frame(x=seq(0, 1), y=seq(0, 1)), color="black", linetype="dashed") +
+  #scale_color_manual(values=color_greylite, name="") +
+  scale_color_manual(values=c("#be2707", "#ed8618"), name="") +
+  geom_smooth(data=c_gg_qcut, method="loess", size=1) +
+  theme(
+    legend.position=c(.01, .08), 
+    axis.title.y = element_text(margin = margin(t = 0, r = 5, b = 0, l = 0))
+  ) +
+  xlab("FC after MPP") + ylab("ICC improvement due to scrubbing") + 
+  guides(color=guide_legend(override.aes=list(size=3, fill=NA), ncol=1))
+
+pdf(plt_fmt(paste0("ICC_byFCType.pdf")), height=6, width=5)
+
+p1
+p3
+
+dev.off()
+```
+
+```{r}
+bs <- Labs[,"bs"]
+bs <- outer(bs, bs, paste0)
+c_gg <- as.data.frame(
+  a$ICC[,mmethods2] - a$ICC[,"MPCC2__06P_DCT4"]
+)
+c_gg$bs <- bs[upper.tri(bs)]
+c_gg$bs <- vapply(c_gg$bs, function(x){switch(x,
+  `leftleft` = "C-C",
+  `leftright` = "C-C",
+  `leftsubcort` = "C-SC",
+  `rightleft` = "C-C",
+  `rightright` = "C-C",
+  `rightsubcort` = "C-SC",
+  `subcortleft` = "C-SC",
+  `subcortright` = "C-SC",
+  `subcortsubcort` = "SC-SC"
+)}, "")
+c_gg$bs <- factor(
+  c_gg$bs, c("C-C", "C-SC", "SC-SC"),
+  labels= c("C-C", "C-SC", "SC-SC")
+)
+c_gg <- tidyr::pivot_longer(c_gg, seq(length(mmethods2)))
+c_gg$name <- factor(c_gg$name, levels=mmethods2, labels=names(mmethods2))
+
+c_gg2 <- dplyr::summarise(
+  dplyr::group_by(c_gg["value"], c_gg[c("name", "bs")]), 
+  v=mean(value)
+)
+
+pdf(plt_fmt(paste0("ICC_byFCType3.pdf")), height=5, width=2.5)
+
+ggplot(c_gg2, aes(x=bs, y=v, fill=name)) +
+  geom_bar(stat = "identity", position="dodge") +
+  #scale_y_continuous(
+  #  limits=c(0, .031), breaks=seq(0,3)/100, 
+  #  labels=c("0", ".01", ".02", ".03"), expand=c(0,0)) +
+  scale_fill_manual(values=myColors) +
+  xlab("FC type") + ylab("Mean ICC improvement due to scrubbing") +
+  cowplot::theme_cowplot() +
+  theme(legend.position="none")
+
+dev.off()
+```
+
+with differing scan lengths
+change in ICC
+C-C, C-SC, SC-SC
+
+```{r}
+bs <- Labs[,"bs"]
+bs <- outer(bs, bs, paste0)
+c_gg <- lapply(b$ICC, function(x){as.data.frame(x[,mmethods2] - x[,"Base"])})
+c_gg[[1]]$ntime <- 400
+c_gg[[2]]$ntime <- 800
+c_gg[[3]]$ntime <- 1185
+c_gg <- do.call(rbind, c_gg)
+#c_gg$ntime <- factor(paste0("t", c_gg$ntime), levels=paste0("t", c(400, 800, 1185)))
+c_gg$bs <- bs[upper.tri(bs)]
+c_gg$bs <- vapply(c_gg$bs, function(x){switch(x,
+  `leftleft` = "C-C",
+  `leftright` = "C-C",
+  `leftsubcort` = "C-SC",
+  `rightleft` = "C-C",
+  `rightright` = "C-C",
+  `rightsubcort` = "C-SC",
+  `subcortleft` = "C-SC",
+  `subcortright` = "C-SC",
+  `subcortsubcort` = "SC-SC"
+)}, "")
+c_gg$bs <- factor(
+  c_gg$bs, c("C-C", "C-SC", "SC-SC"),
+  labels= c("C-C", "C-SC", "SC-SC")
+)
+c_gg <- tidyr::pivot_longer(c_gg, seq(length(mmethods2)))
+c_gg$name <- factor(c_gg$name, levels=mmethods2, labels=names(mmethods2))
+
+c_gg2 <- dplyr::summarise(
+  dplyr::group_by(c_gg["value"], c_gg[c("name", "bs", "ntime")]), 
+  v=mean(value)
+)
+
+pdf(plt_fmt(paste0("ICC_byFCType3_nTime.pdf")), height=5, width=11)
+
+ggplot(c_gg2, aes(x=ntime, y=v, color=name)) +
+  geom_hline(yintercept=0, linetype="dashed") +
+  geom_line(size=1) + geom_point(size=2) +
+  #scale_y_continuous(
+  #  limits=c(0, .031), breaks=seq(0,3)/100, 
+  #  labels=c("0", ".01", ".02", ".03"), expand=c(0,0)) +
+  scale_color_manual(values=myColors) + facet_grid(.~bs) +
+  xlab("Scan length") + ylab("Mean ICC improvement due to scrubbing") +
+  cowplot::theme_cowplot() +
+  theme(legend.position="none")
+
+dev.off()
+```
+
+# Prediction
+
+### CV error
+
+```{r}
+plt_idx <- plt_idx + 1
+```
+
+```{r}
+complete_subjects <- readRDS(
+  file.path(dir_data_misc, "complete_balanced_subjects.rds")
+)
+
+hcp_dg <- read.csv(hcp_dg_fname)
+hcp_dg <- subset(hcp_dg, Subject %in% complete_subjects)
+hcp_dg$Gender <- factor(hcp_dg$Gender)
+hcp_dg$Age <- factor(hcp_dg$Age)
+
+# summary(hcp_dg$Gender) # 29 F, 13 M
+
+dev <- function(p, p2=NULL){ if(is.null(p2)){p2<-p}; 2 * ( p2*log(1/p) + (1-p2)*log(1/(1-p)) ) }
+
+Gender_dev <- c(
+  true = dev(mean(hcp_dg$Gender=="M"))
+)
+```
+
+Each visit separately
+
+```{r}
+nVisits <- 4
+npred <- 100
+nSubCog <- sum(!is.na(hcp_dg$CogTotalComp_Unadj))
+
+pred0 <- file.path(dir_analysis, "pred", paste0(seq(npred), "_CC2MP6_allsubjects.rds"))
+pred0 <- pred <- lapply(pred0, readRDS)
+
+for (ii in seq(length(pred))) { pred[[ii]] <- abind::abind(pred[[ii]], along=3)  }
+pred <- abind::abind(pred, along=4)
+pred <- aperm(pred, c(2,1,4,3))
+dimnames(pred)[[4]][dimnames(pred)[[4]] == "Base"] <- "MPCC2__06P_DCT4"
+pmethods <- dimnames(pred)[[4]]
+pred <- array(pred, dim=c(3, 4, length(complete_subjects), npred, length(pmethods)))
+dimnames(pred) <- list(
+  c("Sex", "Cog_F", "Cog_M"),
+  paste0("v", seq(nVisits)),
+  paste0("s", complete_subjects),
+  paste0("r", seq(npred)),
+  pmethods
+)
+
+# Convert prediction to error
+perror <- perror0 <- list(
+  Sex = dev(pred[1,,,,], rep(as.numeric(hcp_dg$Gender) - 1, each=nVisits)),
+  Cog_F = (pred[2,,,,] - rep(hcp_dg$CogTotalComp_Unadj, each=nVisits))^2,
+  Cog_M = (pred[3,,,,] - rep(hcp_dg$CogTotalComp_Unadj, each=nVisits))^2
+)
+if (length(dim(perror$Sex)) > 3) {
+  perror <- lapply(perror, function(x){
+    list(
+      mu=apply(x, 4, mean, na.rm=TRUE), 
+      sigma=apply(x, 4, function(x){sd(x, na.rm=TRUE)/sqrt(nVisits*length(complete_subjects))})
+    )
+  })
+} else {
+  perror <- lapply(perror, function(x){
+    list(
+      mu=apply(x, 3, mean, na.rm=TRUE), 
+      sigma=apply(x, 3, function(x){sd(x, na.rm=TRUE)/sqrt(nVisits*length(complete_subjects))})
+    )
+  })
+}
+
+if ("DVARSdual" %in% dimnames(pred)[[5]]) {
+  pcols <- c(c(`CC2+6P`=myColors["DCT4"]), myColors[c(1,2,5)])
+} else {
+  pcols <- rep("black", dim(pred)[5])
+}
+
+# Formatting
+perror$Sex <- as.data.frame(do.call(cbind, perror$Sex))
+names(pmethods) <- names(mmethods)[match(pmethods, mmethods)]
+pmethods <- mmethods[sort(match(pmethods, mmethods))]
+perror$Sex$method <- factor(rownames(perror$Sex), pmethods, names(pmethods))
+perror$Cog_F <- as.data.frame(do.call(cbind, perror$Cog_F))
+perror$Cog_F$method <- factor(rownames(perror$Sex), pmethods, names(pmethods))
+perror$Cog_M <- as.data.frame(do.call(cbind, perror$Cog_M))
+perror$Cog_M$method <- factor(rownames(perror$Sex), pmethods, names(pmethods))
+
+p1 <- ggplot(perror$Sex, aes(x=method, y=mu, color=method)) + 
+  scale_x_discrete(expand=c(.05,.05)) +
+  geom_errorbar(aes(ymin=mu-sigma, ymax=mu+sigma), width=.3) + geom_point(size=3, stat="identity") +
+  scale_color_manual(values=pcols) +
+  theme_cowplot() + ylab("Mean CV prediction error (sex)") + xlab("Method") +
+  theme(legend.position="none", panel.spacing = unit(2, "lines")) 
+
+p2 <- ggplot(perror$Cog_F, aes(x=method, y=mu, color=method)) + 
+  scale_x_discrete(expand=c(.05,.05)) +
+  #scale_y_continuous(limits=c(.945, 1.005)) +
+  geom_hline(yintercept=var(hcp_dg$CogTotalComp_Unadj[hcp_dg$Gender=="F"], na.rm=TRUE), linetype="dashed") +
+  geom_errorbar(aes(ymin=mu-sigma, ymax=mu+sigma), width=.3) + geom_point(size=3, stat="identity") +
+  scale_color_manual(values=pcols) +
+  theme_cowplot() + ylab("Mean CV pred error (cognition, females)") + xlab("Method") +
+  theme(legend.position="none", panel.spacing = unit(2, "lines")) 
+
+p3 <- ggplot(perror$Cog_M, aes(x=method, y=mu, color=method)) + 
+  scale_x_discrete(expand=c(.05,.05)) +
+  #scale_y_continuous(limits=c(.945, 1.005)) +
+  geom_hline(yintercept=var(hcp_dg$CogTotalComp_Unadj[hcp_dg$Gender=="M"], na.rm=TRUE), linetype="dashed") +
+  geom_errorbar(aes(ymin=mu-sigma, ymax=mu+sigma), width=.3) + geom_point(size=3, stat="identity") +
+  scale_color_manual(values=pcols) +
+  theme_cowplot() + ylab("Mean CV pred error (cognition, males)") + xlab("Method") +
+  theme(legend.position="none", panel.spacing = unit(2, "lines")) 
+
+pcorCT <- apply(pred[seq(2,3),,,,,drop=FALSE], 1, function(y){
+  apply(
+    y, 4, 
+    function(x){cor(as.vector(x), rep(hcp_dg$CogTotalComp_Unadj, each=4, times=npred), use="complete.obs")}
+  )
+})
+pcorCT <- as.data.frame(pcorCT)
+pcorCT$method <- rownames(pcorCT)
+pcorCT <- tidyr::pivot_longer(pcorCT, seq(2))
+pcorCT$method <- factor(pcorCT$method, pmethods, names(pmethods))
+pcorCT$name <- factor(pcorCT$name, c("Cog_F", "Cog_M"), c("F", "M"))
+p4 <- ggplot(pcorCT, aes(x=method, y=value, color=method)) + 
+  scale_x_discrete(expand=c(.05,.05)) +
+  facet_grid(.~name) +
+  geom_hline(yintercept=0, linetype="dashed") +
+  geom_point(size=3, stat="identity") +
+  scale_color_manual(values=pcols) +
+  theme_cowplot() + ylab("Prediction cor. with truth (cognition)") + xlab("Method") +
+  theme(legend.position="none", panel.spacing = unit(2, "lines")) 
+
+#pdf(plt_fmt(paste0("Pred_Summary.pdf")), height=2.8, width=1.8)
+pdf(plt_fmt(paste0("Pred_Summary.pdf")), height=5, width=3.5)
+print(p1)
+print(p1 + geom_hline(yintercept=dev(mean(as.numeric(hcp_dg$Gender)-1)), linetype="dashed"))
+print(p2)
+print(p3)
+print(p4)
+
+dev.off()
+```
+
+Mean prediction
+
+```{r}
+pred1 <- array(NA, dim=c(4, nrow(hcp_dg), 3, 4, npred))
+# visit, subject, what, method, npred
+for (ii in seq(npred)) {
+  pred1[,,,,ii] <- do.call(cbind, pred0[[ii]])
+}
+pred1 <- apply(pred1, c(2, 3), mean)
+
+```
+
+Reliability of prediction
+
+```{r}
+get_ICC31 <- function(x) {
+  # ICC(3,1)
+  # x is items by raters
+  # ADAPTED FROM `psych::ICC`
+  if (is.matrix(x)) { x <- data.frame(x) }
+  n.obs <- dim(x)[1]
+
+  items <- colnames(x)
+  n.items <- NCOL(x)
+
+  nj <- dim(x)[2]
+  x.s <- stack(x)
+  x.df <- data.frame(x.s, subs = rep(paste("S", 1:n.obs, sep = ""), nj))
+  
+  aov.x <- aov(values ~ subs + ind, data = x.df)
+  s.aov <- summary(aov.x)
+  stats <- matrix(unlist(s.aov), ncol = 3, byrow = TRUE)
+  MSB <- stats[3, 1]
+  MSW <- (stats[2, 2] + stats[2, 3])/(stats[1, 2] + stats[1, 3])
+  #MSJ <- stats[3, 2]
+  MSE <- stats[3, 3]
+  ICC31 <- (MSB - MSE)/(MSB + (nj - 1) * MSE)
+  ICC31
+}
+
+predICC <- apply(apply(pred, c(1,2,3,5), mean), c(1,4), function(x){y <- t(x); get_ICC31(y)})
+predSD <- apply(apply(pred, c(1,3,5), sd, na.rm=TRUE), c(1,3), mean, na.rm=TRUE)
+```
+
+Mean FC over visits
+
+### By scrubbing amount
+
+```{r}
+all_scrub_flag <- readRDS(file.path(dir_data_misc, "all_scrub_flag.rds"))
+all_scrub_flag <- lapply(all_scrub_flag, function(x){apply(x, c(1,3), sum)})
+```
+
+```{r}
+idx_y <- c("FD", "DVARS", "ICA")
+idx_z <- c("Base", "FD", "ICA", "DVARS")
+
+pdf(plt_fmt(paste0("PredError_byNScrub.pdf")), height=3, width=3.2)
+
+for (v in names(perror0)) { 
+
+  gg <- data.frame(
+    s = rep(names(all_scrub_flag), each=4),
+    LevICA_d = NA,
+    DVARS_d = NA,
+    FD_d = NA,
+    LevICA_n = NA,
+    DVARS_n = NA,
+    FD_n = NA
+  )  
+
+  for (m in seq(3)) {
+    mn <- c("ICA", "DVARS", "FD")[m]
+    mi <- c("LevICA", "DVARS", "FD")[m]
+    
+    q <- match(gsub("s", "", dimnames(perror0[[v]])[[2]]), gg$s)
+    q <- c(rbind(q, q+1, q+2, q+3))
+    gg[[paste0(mi, "_d")]][q] <- perror0[[v]][,,match(mn, idx_z)] #perror0[[v]][,,1]
+    gg[[paste0(mi, "_n")]] <- c(do.call(cbind,
+      lapply(all_scrub_flag, function(x){x[,match(mn, idx_y)]})
+    ))
+  }
+  
+  gg <- gg[apply(gg, 1, function(x){all(!is.na(x))}),]
+  
+  gg2s <- setNames(vector("list", 3), c("LevICA", "DVARS", "FD"))
+  for (m in seq(3)) {
+    mi <- c("LevICA", "DVARS", "FD")[m]
+    gg$nc <- cut(
+      gg[[paste0(mi, "_n")]], 
+      c(-Inf, quantile(gg[[paste0(mi, "_n")]], c(.25, .5, .75)), Inf), 
+      labels=c("0-25", "25-50", "50-75", "75-100")
+    )
+    
+    gg2s[[m]] <- matrix(NA, 2, 4)
+    for (jj in seq(4)) {
+      gg2s[[m]][,jj] <- c(
+        mean(subset(gg, nc==levels(nc)[jj])[[paste0(mi, "_d")]]),
+        sd(subset(gg, nc==levels(nc)[jj])[[paste0(mi, "_d")]])
+      )
+    }
+    gg2s[[m]] <- data.frame(
+      imp_mn = gg2s[[m]][1,],
+      imp_vr = gg2s[[m]][2,],
+      method = mi,
+      nScrub = c("0-25", "25-50", "50-75", "75-100")
+    )
+  }
+  gg2s <- do.call(rbind, gg2s)
+  
+  gg2s$method <- factor(gg2s$method, c("LevICA", "DVARS", "FD"))
+  gg2s$nScrub <- factor(gg2s$nScrub, c("0-25", "25-50", "50-75", "75-100"))
+
+  null_error <- c(
+    Sex=dev(mean(as.numeric(hcp_dg$Gender)-1)),
+    Cog_F=var(hcp_dg$CogTotalComp_Unadj[hcp_dg$Gender=="F"], na.rm=TRUE), 
+    Cog_M=var(hcp_dg$CogTotalComp_Unadj[hcp_dg$Gender=="M"], na.rm=TRUE)
+  )[v]
+  
+  print(
+    
+    ggplot(gg2s, aes(x=nScrub, y=imp_mn, color=method)) + 
+      scale_x_discrete(expand=c(.05,.05)) +
+      geom_errorbar(size=.9, aes(ymin=imp_mn-imp_vr, ymax=imp_mn+imp_vr), width=.15, position=position_dodge(width=.35)) + 
+      geom_point(size=1.8, stat="identity", position=position_dodge(width=.35)) +
+      scale_color_manual(values=pcols) +
+      geom_hline(yintercept=null_error, linetype="dashed") +
+      theme_cowplot() + ylab("Mean CV prediction error") + xlab("# Scrubbed (percentile)") +
+      theme(legend.position="bottom", panel.spacing = unit(2, "lines")) +
+      ggtitle(v)
+  )
+}
+
+dev.off()
+```
+
+```{r}
+idx_y <- c("FD", "DVARS", "ICA")
+idx_z <- c("FD", "ICA", "DVARS")
+
+pdf(plt_fmt(paste0("PredError_byNScrub2.pdf")), height=4, width=4.25) # 3 x 3.2
+
+for (v in names(perror0)) {
+
+  gg <- data.frame(
+    s = rep(names(all_scrub_flag), each=4),
+    LevICA_d = NA,
+    DVARS_d = NA,
+    FD_d = NA,
+    LevICA_n = NA,
+    DVARS_n = NA,
+    FD_n = NA
+  )  
+
+  for (m in seq(3)) {
+    mn <- c("ICA", "DVARS", "FD")[m]
+    mi <- c("LevICA", "DVARS", "FD")[m]
+    
+    q <- match(gsub("s", "", dimnames(perror0[[v]])[[2]]), gg$s)
+    q <- c(rbind(q, q+1, q+2, q+3))
+    gg[[paste0(mi, "_d")]][q] <- perror0[[v]][,,1] - perror0[[v]][,,match(mn, idx_z)+1]
+    gg[[paste0(mi, "_n")]] <- c(do.call(cbind,
+      lapply(all_scrub_flag, function(x){x[,match(mn, idx_y)]})
+    ))
+  }
+  
+  gg <- gg[apply(gg, 1, function(x){all(!is.na(x))}),]
+  
+  gg2s <- setNames(vector("list", 3), c("LevICA", "DVARS", "FD"))
+  for (m in seq(3)) {
+    mi <- c("LevICA", "DVARS", "FD")[m]
+    gg$nc <- cut(
+      gg[[paste0(mi, "_n")]], 
+      c(-Inf, 50, 100, 150, Inf), 
+      labels=c("0-50", "50-100", "100-150", "150+")
+    )
+    
+    gg2s[[m]] <- matrix(NA, 2, 4)
+    for (jj in seq(4)) {
+      gg2s[[m]][,jj] <- c(
+        mean(subset(gg, nc==levels(nc)[jj])[[paste0(mi, "_d")]]),
+        sd(subset(gg, nc==levels(nc)[jj])[[paste0(mi, "_d")]])
+      )
+    }
+    gg2s[[m]] <- data.frame(
+      imp_mn = gg2s[[m]][1,],
+      imp_vr = gg2s[[m]][2,],
+      method = mi,
+      nScrub = c("0-25", "25-50", "50-75", "75-100")
+    )
+  }
+  gg2s <- do.call(rbind, gg2s)
+  
+  gg2s$method <- factor(gg2s$method, c("LevICA", "DVARS", "FD"))
+  gg2s$nScrub <- factor(gg2s$nScrub, c("0-25", "25-50", "50-75", "75-100"))
+  
+  print(
+    ggplot(gg2s, aes(x=nScrub, y=imp_mn, color=method)) + 
+      scale_x_discrete(expand=c(.05,.05)) +
+      geom_errorbar(size=.9, aes(ymin=imp_mn-imp_vr, ymax=imp_mn+imp_vr), width=.15, position=position_dodge(width=.35)) + 
+      geom_point(size=1.8, stat="identity", position=position_dodge(width=.35)) +
+      scale_color_manual(values=pcols) +
+      geom_hline(yintercept=0, linetype="dashed") +
+      theme_cowplot() + ylab("Mean CV prediction improvement") + xlab("# Scrubbed (percentile)") +
+      theme(legend.position="bottom", panel.spacing = unit(2, "lines")) +
+      ggtitle(v)
+  )
+}
+
+dev.off()
+```
+
+### Beta coefficients
+
+```{r}
+betas <- readRDS(file.path(dir_analysis, "pred_betas", "CC2MP6_allsubjects.rds"))
+y <- names(betas[[1]])
+
+mmethods5 <- c(c(Base="Base"), mmethods2)
+mmethods5 <- mmethods5[c(1,2,5,6)]
+
+lim_betas <- c(.8, .05, .05)
+
+for (bb in seq(length(y))) {
+  bbname <- y[bb]
+  beta <- lapply(lapply(betas, `[[`, bbname), `[[`, "betas")
+  
+  lim_beta <- lim_betas[bb]
+  #lim_beta <- signif(quantile(abs(do.call(c, beta)), .99), 2) * 5
+    
+  pdf(plt_fmt(paste0("Pred_Betas_", bbname, ".pdf")))
+  
+  for (ii in seq(length(mmethods5))) {
+    method_name <- mmethods5[ii]
+    if (method_name == "Lev___PCATF_kurt___3") {next}
+    method_name2 <- names(mmethods5)[match(method_name, mmethods5)]
+    cat(method_name2, "\t")
+    
+    mat <- beta[[method_name]]
+    mat <- cor_mat(mat, names=Labs$label, newOrder=order(Labs$idx2))
+    
+    # Take network-network means in upper tri
+    mat2 <- mat
+    for (jj in seq(nrow(gg_pdv)+1)) {
+      for (kk in seq(nrow(gg_pdv)+1)) {
+        mat2[seq(pdv[jj], pdv[jj+1]-1), 120 - seq(pdv[kk], pdv[kk+1]-1)] <- mean(
+          mat2[seq(pdv[jj], pdv[jj+1]-1), 120 - seq(pdv[kk], pdv[kk+1]-1)], na.rm=TRUE
+        )
+      }
+    }
+    mat[seq(nrow(mat)), rev(seq(ncol(mat)))][lower.tri(mat)] <- mat2[seq(nrow(mat)), rev(seq(ncol(mat)))][lower.tri(mat)]
+    
+    #mat[is.na(mat)] <- 0
+    mat[] <- pmax(-lim_beta, pmin(lim_beta, mat))
+      
+    q <- ggcorrplot(mat, outline.color = "#00000000", title=paste("Prediction coefficients:", method_name2), digits=10) + 
+      scale_y_discrete(labels=cor_mat_ylabs) +
+      coord_equal(xlim=c(-4, 119.65), ylim=c(.5, parc_res2+5), expand=FALSE) +
+      coloring$diverging5(
+        c(-lim_beta, lim_beta), guide=guide_colorbar(ticks.colour = "black", ticks.linewidth = 2), 
+        labels = function(x){gsub("0.", ".", x, fixed=TRUE)}, na.value="red"
+      ) +
+      labs(fill="Coef.") +
+      theme(
+        panel.grid.major = element_blank(),
+        axis.text.y = element_text(margin=margin(r=10)),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.position = "bottom"#, legend.text.align = 1
+      ) +
+      # annotate(
+      #   "raster", x=seq(119), y=rev(seq(119)), fill="black"
+      # ) +
+      # brain region label color bar
+      annotate(
+        "rect", xmin=-4, xmax=.5, ymin=119.5-seq(nrow(mat)), ymax=119.5-seq(nrow(mat))+1,
+        fill=mbar_cols[seq(nrow(mat))]
+      ) +
+      annotate(
+        "rect", ymin=119.5, ymax=parc_res2+5, xmin=seq(nrow(mat))-.5, xmax=seq(nrow(mat))+.5,
+        fill=mbar_cols[seq(nrow(mat))]
+      ) +
+      # dividers
+      geom_rect(aes(xmin=xmin, xmax=xmax, ymin=0, ymax=parc_res2+5), data=gg_pdv, fill="black") +
+      geom_rect(aes(ymin=120-xmin, ymax=120-xmax, xmin=-4, xmax=119.5), data=gg_pdv, fill="black") + 
+      # four edges
+      annotate("rect", xmin=.35, xmax=.65, ymin=0, ymax=parc_res2+5, fill="black") +
+      annotate("rect", xmin=119.35, xmax=119.65, ymin=0, ymax=parc_res2+5, fill="black") + 
+      annotate("rect", ymin=.35, ymax=.65, xmin=-4, xmax=119.85, fill="black") +
+      annotate("rect", ymin=119.35, ymax=119.65, xmin=-4, xmax=119.85, fill="black") +
+      # separate brain region label color bar
+      annotate("rect", ymin=0, ymax=119.65, xmin=-.5, xmax=.35, fill="white") +
+      annotate("rect", ymin=119.65, ymax=120.5, xmin=-.5, xmax=119.65, fill="white")
+    
+    print(q)
+    
+  } 
+  
+  dev.off()
+  
+}
+
+```
+
+# Fingerprinting
+
+```{r}
+plt_idx <- plt_idx + 1
+```
+
+```{r}
+mmethods4 <- c(Base="Base", mmethods2)
+fp <- cbind(
+  readRDS(file.path(dir_analysis, "fingerprinting", "CC2MP6.rds"))
+)[,mmethods4]
+
+q <- expand.grid(
+  lab = c(unique(Labs$network3[order(Labs$idx2)]), "All"),
+  diag = c("on", "off"),
+  vpair = paste("v", seq(4)),
+  method = c("meanclamp5", "toprate"),
+  dir = c("fwd", "rev")
+)
+q <- cbind(q, fp)
+q <- tidyr::pivot_longer(q, cols=colnames(q)[seq(6, ncol(q))])
+q$name_nice <- names(mmethods4)[match(q$name, mmethods4)]
+q$name_nice <- factor(q$name_nice, levels=names(mmethods4))
+q$name <- NULL
+q <- subset(q, method=="toprate")
+q2 <- aggregate(q$value, by=list(q$lab, q$diag, q$method, q$name_nice), mean)
+colnames(q2)[seq(4)] <- c("lab", "diag", "method", "name_nice")
+q2$l2 <- paste(q2$lab, q2$diag, sep="_")
+#levels(q2$name_nice)[levels(q2$name_nice) == "LevPCA-TF"] <- "LevTF"
+
+pdf(plt_fmt(paste0("Fingerprinting.pdf")), height=3.5, width=8.5)
+
+colorf <- myColors[gsub("Base", "DCT4", names(mmethods4))]
+names(colorf)[names(colorf)=="DCT4"] <- "Base"
+
+p1 <- ggplot(subset(q2, diag=="off"), aes(x=lab, y=x)) + 
+  geom_raster(data=data.frame(
+    x=rep(.45, 9), 
+    lab=factor(levels(q2$lab), levels(q2$lab))
+  ), fill=Labs2[levels(q2$lab)]) +
+  geom_raster(data=data.frame(
+    x=rep(.501, 9),
+    lab=factor(levels(q2$lab), levels(q2$lab))
+  ), fill="white", alpha=rep(.92, 9)) +
+  geom_col(aes(fill=name_nice), colour="#444444", size=.2, width=0.5, position=position_dodge(0.5)) + 
+  geom_vline(xintercept=0, linetype="solid") +
+  ylab("Fingerprinting match rate") + xlab("") +
+  coord_cartesian(ylim=c(0, .8)) +
+  scale_x_discrete(expand=c(0,0)) +
+  scale_fill_manual(values=colorf, name="") +
+  theme_cowplot() +
+  geom_hline(yintercept=0)
+p1
+
+dev.off()
+```
+```{r}
+fp <- cbind(
+  readRDS(file.path(dir_analysis, "fingerprinting", "Baselines.rds"))
+)
+
+q <- expand.grid(
+  lab = c(unique(Labs$network3[order(Labs$idx2)]), "All"),
+  diag = c("on", "off"),
+  vpair = paste("v", seq(4)),
+  method = c("meanclamp5", "toprate"),
+  dir = c("fwd", "rev")
+)
+q <- cbind(q, fp)
+q <- tidyr::pivot_longer(q, cols=colnames(q)[seq(6, ncol(q))])
+q$name_nice <- names(mmethods)[match(q$name, mmethods)]
+q$name_nice <- factor(q$name_nice, levels=names(mmethods))
+q$name <- NULL
+q <- subset(q, method=="toprate")
+q2 <- aggregate(q$value, by=list(q$lab, q$diag, q$method, q$name_nice), mean)
+colnames(q2)[seq(4)] <- c("lab", "diag", "method", "name_nice")
+q2$l2 <- paste(q2$lab, q2$diag, sep="_")
+#levels(q2$name_nice)[levels(q2$name_nice) == "LevPCA-TF"] <- "LevTF"
+
+pdf(plt_fmt(paste0("Fingerprinting_Baselines.pdf")), height=3.5, width=8.5)
+
+p1 <- ggplot(subset(q2, diag=="off"), aes(x=lab, y=x)) + 
+  geom_raster(data=data.frame(
+    x=rep(.45, 9), 
+    lab=factor(levels(q2$lab), levels(q2$lab))
+  ), fill=Labs2[levels(q2$lab)]) +
+  geom_raster(data=data.frame(
+    x=rep(.501, 9),
+    lab=factor(levels(q2$lab), levels(q2$lab))
+  ), fill="white", alpha=rep(.92, 9)) +
+  geom_col(aes(fill=name_nice), colour="#444444", size=.2, width=0.5, position=position_dodge(0.5)) + 
+  geom_vline(xintercept=0, linetype="solid") +
+  ylab("Fingerprinting match rate") + xlab("") +
+  coord_cartesian(ylim=c(0, .9)) +
+  scale_x_discrete(expand=c(0,0)) +
+  theme_cowplot() +
+  geom_hline(yintercept=0) +
+  scale_fill_brewer(palette="Set2")
+p1
+
+dev.off()
+```
+
+# Misc statistics
+
+# x
+
+```{r}
+# 4, 202, 157, 355
+```
+
+### Maximum number of frames removed
+
+```{r}
+a$nScrubMax <- apply(a$nScrub, 3, max)
+a$nScrubMax[mmethods]
+```
+
+```{r}
+rm(a, Beach, beta, betas, betasC, betasS, bICC, bs, c_gg, c_gg_q, c_gg_qcut, c_gg2)
+rm(color_methods, color_Rpals, coloring, dct4, folds, fp, Gender_dev_CV_this, gg_df, gg_df2)
+rm(gg_pdv, iters, mat, mat2, mni, NetMat, p1, p2, p3, p4, pcorCT)
+rm(perror, plts, pred, preds, predS, predS_b, q, q2, virInfDiv, z2)
+```
+
+# Alternative baselines
+
+```{r}
+plt_idx <- plt_idx + 1
+```
+
+```{r}
+mmethods5 <- c(c(Base="Base"), mmethods)
+mmethods6 <- c(
+  mmethods3[seq(3)],
+  c(CC5 = "CompCor__PC05_withCblm_DCT4"),
+  mmethods3[seq(4,5)]
+)
+pmethods <- c(c(Base="Base"), mmethods2)
+pmethods2 <- mmethods2
+mmethods7 <- c("HCP-ICAFIX", "None", "CC2_withCblmScaleAfterNReg", "CC5_withCblmScaleAfterNReg", "9P", "36RP")
+
+whats <- c("meanFC", "reliability") #"prediction1", "fingerprinting"
+things <- setNames(vector("list", length(whats)), whats)
+bthings <- setNames(vector("list", length(whats)), whats)
+for (ww in seq(length(whats))) {
+  what <- whats[ww]
+  
+  wbase <- readRDS(file.path(dir_analysis, what, "Baselines_with9P.rds"))
+  wbase2 <- readRDS(file.path(dir_analysis, what, "HCP-ICAFIX.rds"))
+  if (what == "meanFC") { wbase <- wbase$meanFC; wbase2 <- wbase2$meanFC }
+  bthings[[what]] <- wbase[,intersect(colnames(wbase), mmethods6)]
+  bthings[[what]] <- cbind(bthings[[what]], wbase2[,intersect(colnames(wbase2), mmethods6)])
+  colnames(bthings[[what]])[ncol(bthings[[what]])] <- "ICA-FIX"
+  
+  things[[what]] <- setNames(vector("list", length(mmethods6)-1), names(mmethods6)[seq(2, length(mmethods6))])
+  for (mm in seq(2, length(mmethods6))) {
+    w <- readRDS(file.path(dir_analysis, what, paste0(mmethods7[mm], "_1.rds")))
+    if (what == "meanFC") { w <- w$meanFC }
+    things[[what]][[mm-1]] <- w[,match(pmethods, colnames(w))]
+  }
+}
+
+
+# Validate that base matches 
+for (ww in seq(length(whats))) {
+  for (mm in seq(2, length(mmethods6)-1)) {
+    testthat::expect_equal(
+      things[[ww]][[names(mmethods6)[mm]]][,"Base"],
+      bthings[[ww]][,mmethods6[mm]]
+    )
+  }
+}
+```
+
+```{r}
+bs <- Labs[,"bs"]
+bs <- outer(bs, bs, paste0)
+bs <- bs[upper.tri(bs)]
+bs <- vapply(bs, function(x){switch(x,
+  `leftleft` = "C-C",
+  `leftright` = "C-C",
+  `leftsubcort` = "C-SC",
+  `rightleft` = "C-C",
+  `rightright` = "C-C",
+  `rightsubcort` = "C-SC",
+  `subcortleft` = "C-SC",
+  `subcortright` = "C-SC",
+  `subcortsubcort` = "SC-SC"
+)}, "")
+bs <- factor(bs, c("C-C", "C-SC", "SC-SC"))
+
+mean_bybs <- function(x){
+  c(
+    mean(x[bs==levels(bs)[1]]),
+    mean(x[bs==levels(bs)[2]]),
+    mean(x[bs==levels(bs)[3]])
+  )  
+}
+```
+
+```{r}
+bthings$meanFC <- apply(bthings$meanFC, 2, mean_bybs)
+things$meanFC <- lapply(things$meanFC, function(x){apply(x, 2, mean_bybs)})
+
+bthings$reliability <- apply(bthings$reliability, 2, mean_bybs)
+things$reliability <- lapply(things$reliability, function(x){apply(x, 2, mean_bybs)})
+```
+
+```{r}
+gg <- gg2 <- vector("list", 3)
+for (ii in seq(3)) {
+  gg[[ii]] <- data.frame(
+    base = rep(names(things$reliability), each=5),
+    value = do.call(c, lapply(things$reliability, function(x){x[ii,]})),
+    method = do.call(c, lapply(things$reliability, function(x){colnames(x)})),
+    bs = levels(bs)[ii]
+  )
+  gg2[[ii]] <- rbind(
+    subset(gg[[ii]], method!="Base"),
+    data.frame(
+      base = rep(names(things$reliability), each=4),
+      value = do.call(c, lapply(things$reliability, function(x){rep(x[ii,1], each=4)})),
+      method = do.call(c, lapply(things$reliability, function(x){colnames(x)[seq(2, ncol(x))]})),
+      bs = levels(bs)[ii]
+    )      
+  )
+}
+gg <- do.call(rbind, gg)
+gg2 <- do.call(rbind, gg2)
+rownames(gg) <- rownames(gg2) <- NULL
+gg$base <- factor(gg$base, levels=names(mmethods6))
+gg$method <- factor(gg$method, levels=pmethods, labels=names(pmethods))
+gg$bs <- factor(gg$bs, levels=levels(bs))
+gg2$base <- factor(gg2$base, levels=names(mmethods6))
+gg2$method <- factor(gg2$method, levels=pmethods, labels=names(pmethods))
+gg2$bs <- factor(gg2$bs, levels=levels(bs))
+gg2$group <- factor(paste(gg2$base, gg2$method), levels=outer(levels(gg2$base), levels(gg2$method), paste))
+```
+
+```{r}
+pdf(plt_fmt(paste0("Appendix_AllBaselines.pdf")), height=4, width=6.5)
+
+ggplot() +
+  geom_line(aes(x=base, y=value, color=method, group=group), data=gg2, size=1.75, position=position_dodge(width=1)) +
+  facet_grid(.~bs) +
+  geom_errorbar(aes(x=base, ymin=value, ymax=value), data=subset(gg, method=="Base"), size=1.2) +
+  #geom_point(aes(x=name, y=value, color=method), data=subset(thing, method!="Base"), size=2, position=position_dodge(width=.2)) +
+  xlab("") + ylab("Mean ICC") +
+  scale_color_manual(values=color_this) +
+  theme_cowplot() + 
+  theme(legend.position="bottom")
+
+dev.off()
+```

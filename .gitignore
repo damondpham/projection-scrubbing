@@ -1,0 +1,90 @@
+# History files
+.Rhistory
+.Rapp.history
+
+# Session Data files
+.RData
+
+# User-specific files
+.Ruserdata
+
+# Example code in package build process
+*-Ex.R
+
+# Output files from R CMD build
+/*.tar.gz
+
+# Output files from R CMD check
+/*.Rcheck/
+
+# RStudio files
+.Rproj.user/
+
+# produced vignettes
+vignettes/*.html
+vignettes/*.pdf
+
+# OAuth2 token, see https://github.com/hadley/httr/releases/tag/v0.3
+.httr-oauth
+
+# knitr and R markdown default cache directories
+*_cache/
+/cache/
+
+# Temporary files created by R markdown
+*.utf8.md
+*.knit.md
+
+# R Environment Variables
+.Renviron
+*.ini
+
+# Mine
+*.DS_Store
+plots/helper/x_ar1.rds
+plots/helper/x_kurt.rds
+Icon?
+plots/carpetScrubComps
+plots/
+Archive/
+code/analysis/temp_cleanup.R
+code/analysis/0_Secret-FilePaths.txt
+code/analysis_slurm
+
+# Selected results
+analysis-results/*
+!analysis-results/1_CompCor
+analysis-results/1_CompCor/*
+!analysis-results/1_CompCor/250427_v2_LR.rds
+
+!analysis-results/1_MeanSignals
+analysis-results/1_MeanSignals/*
+!analysis-results/1_MeanSignals/250427_v2_LR.rds
+
+!analysis-results/2_ScrubMeas
+analysis-results/2_ScrubMeas/*
+!analysis-results/2_ScrubMeas/FD
+analysis-results/2_ScrubMeas/FD/*
+!analysis-results/2_ScrubMeas/FD/FD_250427_v2_LR.rds
+!analysis-results/2_ScrubMeas/DVARS
+analysis-results/2_ScrubMeas/DVARS/*
+!analysis-results/2_ScrubMeas/DVARS/CC2MP6
+analysis-results/2_ScrubMeas/DVARS/CC2MP6/*
+!analysis-results/2_ScrubMeas/DVARS/CC2MP6/DVARS_250427_v2_LR.rds
+!analysis-results/2_ScrubMeas/Lev
+analysis-results/2_ScrubMeas/Lev/*
+!analysis-results/2_ScrubMeas/Lev/CC2MP6
+analysis-results/2_ScrubMeas/Lev/CC2MP6/*
+!analysis-results/2_ScrubMeas/Lev/CC2MP6/Lev_250427_v2_LR.rds
+
+!analysis-results/3_FC
+analysis-results/3_FC/*
+!analysis-results/3_FC/CC2MP6
+analysis-results/3_FC/CC2MP6/*
+!analysis-results/3_FC/CC2MP6/250427_v2_LR_forGithub.rds
+
+data/*
+!data/HCP_S1200_LargeBalancedSample.rds
+!data/Parc
+data/Parc/*
+!data/Parc/ParcLabels.rds
