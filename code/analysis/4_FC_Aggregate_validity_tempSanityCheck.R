@@ -25,7 +25,7 @@ time <- Sys.time()
 for (baseName in baseNames) {
   cat(baseName, "~~~~~~~~~~~~~~~~~~~~~~\n")
   
-  all_FCval_fname <- file.path(dir_FCval, paste0("FC_", baseName, ".rds"))
+  all_FCval_fname <- file.path(dir_FCval, paste0("FC_", baseName, "_sanityCheck.rds"))
   if (file.exists(all_FCval_fname)) { next }
   
   # Directories --------------------------------
@@ -33,7 +33,7 @@ for (baseName in baseNames) {
   lev_dir <- file.path(dir_scrubMeas, "Lev", baseName)
   dvars_dir <- file.path(dir_scrubMeas, "DVARS", baseName)
 
-  agg <- array(NA, dim=c(length(subjects), nrow(iters2), 19, 87571))
+  agg <- array(NA, dim=c(length(subjects), nrow(iters2), 9, 87571))
 
   for (nn in seq(length(subjects))) {
     subject <- subjects[nn]
@@ -60,8 +60,7 @@ for (baseName in baseNames) {
 
       # Compute ground truth.
       gt_ii <- wmeanFC(c(
-        lapply(gt_nn[!pair_ii], '[[', "full"),
-        lapply(gt_nn[pair_ii], '[[', "out")
+        lapply(gt_nn[!pair_ii], '[[', "full")
       ))
 
       # Compute LR/RL pair estimates for each scrubbing method. 
@@ -71,13 +70,16 @@ for (baseName in baseNames) {
       )
       for (s_name in names(sess_nn[[1]])) {
         sess_nn_s <- lapply(sess_nn, '[[', s_name)
-        est_ii[[s_name]] <- wmeanFC(lapply(sess_nn_s[pair_ii], '[[', "mid"))
+        est_ii[[s_name]] <- wmeanFC(c(
+          lapply(sess_nn_s[pair_ii], '[[', "out"),
+          lapply(sess_nn_s[pair_ii], '[[', "mid")
+        ))
       }
 
       # Compute error.
       est_ii <- lapply(est_ii, function(x){ psych::fisherz(x) - psych::fisherz(gt_ii) })
       est_ii <- do.call(rbind, est_ii)
-      
+
       # Add to results.
       agg[nn,ii,,] <- est_ii
     }
@@ -93,5 +95,5 @@ for (baseName in baseNames) {
   
   saveRDS(agg, all_FCval_fname)
   agg2 <- apply(agg^2, c(3,4), mean)
-  saveRDS(agg2, file.path(dir_FCval, paste0("FC_", baseName, "_mean.rds")))
+  saveRDS(agg2, file.path(dir_FCval, paste0("FC_", baseName, "_sanityCheck_mean.rds")))
 }

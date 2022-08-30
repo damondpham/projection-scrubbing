@@ -42,9 +42,9 @@ vols_from_nT <- function(nT){
 
 flag_wrap2_val <- function(flag=NULL, tmasks="default") {
   nT <- hcp_T-15
-  if (is.null(flag)) {
-    flag <- rep(FALSE, nT[length(nT)])
-  } else {
+  if (is.null(flag)) { 
+    flag <- rep(FALSE, nT[length(nT)]) 
+  } else { 
     flag <- as.logical(flag)
     stopifnot(length(flag) == nT[length(nT)])
   }
@@ -66,14 +66,14 @@ flag_wrap2_val <- function(flag=NULL, tmasks="default") {
 
   out <- vector("list", length=length(tmasks))
   names(out) <- names(tmasks)
-
+  
   for (tt in seq(length(tmasks))) {
     vols_tt <- tmasks[[tt]]
     flag_tt <- flag[[tt]]
-
+    
     T_ <- length(flag_tt)
     nScrub <- sum(flag_tt)
-
+    
     if (nScrub < T_ - 2) {
       if (nScrub > 0) {
         # One-hot encode outlier flags
@@ -84,14 +84,14 @@ flag_wrap2_val <- function(flag=NULL, tmasks="default") {
         spikes <- NULL
       }
       cii2 <- nuisance_regression(
-        cii[vols_tt,],
+        cii[vols_tt,], 
         cbind(nreg[vols_tt,], spikes)
       )
     } else {
       spikes <- NULL
       cii2 <- cii * NA
     }
-
+    
     out[[tt]] <- flag_wrap1_val(flag_tt, cii2)
   }
   out
@@ -102,10 +102,10 @@ time <- Sys.time()
 
 for (baseName in baseNames) {
   cat(baseName, "~~~~~~~~~~~~~~~~~~~~~~\n")
-
+  
   all_FCval_fname <- file.path(dir_FCval, paste0("FC_", baseName, ".rds"))
   if (file.exists(all_FCval_fname)) { next }
-
+  
   # Directories --------------------------------
   fd_dir <- file.path(dir_scrubMeas, "FD")
   lev_dir <- file.path(dir_scrubMeas, "Lev", baseName)
@@ -117,18 +117,18 @@ for (baseName in baseNames) {
     acquisition <- as.character(iters[ii, "acquisition"])
     test <- iters[ii, "test"]
     visit <- iters[ii, "visit"]
-
+  
     cat(paste0(
-      baseName, ", Subject ", subject, ", ", acquisition, " ",
-      ifelse(test, "test", "retest"), " ", visit,
+      baseName, ", Subject ", subject, ", ", acquisition, " ", 
+      ifelse(test, "test", "retest"), " ", visit, 
       " (", ii, " of ", nrow(iters), ")", "\n"
     ))
-
+        
     # Get files; skip if done --------------------------------
     suffix <- paste0(subject, "_v", visit + (!test)*2, "_", acquisition)
 
     FCval_fname <- file.path(dir_FCval, baseName, paste0(suffix, ".rds"))
-    if (skip_ii(FCval_fname)) { next }
+    #if (skip_ii(FCval_fname)) { next }
 
     # # Mean signals
     # ms <- data.frame(readRDS(file.path(dir_meanSignals, paste0(suffix, ".rds"))))
@@ -137,7 +137,7 @@ for (baseName in baseNames) {
     # CompCor
     cc <- readRDS(file.path(dir_CompCor, paste0(suffix, ".rds")))
     cc <- scale(cbind(cc$PCs$wm_cort[,seq(5)], cc$PCs$csf[,seq(5)], cc$PCs$wm_cblm[,seq(5)]))
-
+    
     # CIFTI
     fname_prefix <- paste0("rfMRI_REST", visit, "_", acquisition)
     data_dir <- if (COMPUTER=="MPro") {
@@ -149,7 +149,7 @@ for (baseName in baseNames) {
       CIFTI = file.path(data_dir, paste0(fname_prefix, "_Atlas.dtseries.nii")),
       RP = file.path(data_dir, "Movement_Regressors.txt")
     )
-
+  
     # If retest, the data needs to be loaded.
     if (!test) {
       data_zip_MPP <- file.path(
@@ -165,7 +165,7 @@ for (baseName in baseNames) {
     }
 
     read_dir <- ifelse(test, dir_HCP_test, dir_HCP_retest)
-
+    
     rp <- read.table(file.path(ifelse(test, dir_HCP_test, dir_HCP_retest), fnames$RP))
     p6 <- scale(rp[seq(nDrop+1, hcp_T),seq(6)])
     # p36 <- scale(cbind(ms, rbind(0, diff(ms)), rp))
@@ -186,17 +186,17 @@ for (baseName in baseNames) {
       # `36P` = cbind(1, dct4, p36),
       CC2MP6 = cbind(1, dct4, cc[,c(1,2,6,7,11,12)], p6)
     )
-
+    
     # Scrubbing measures
     cat("\tReading scrubbing measures.\n")
     fd <- readRDS(file.path(fd_dir, paste0("FD_", suffix, ".rds")))
     if (baseName != "CC2MP6") { fd <- fd[c("og", "og_nfc_l4")] } # post-hoc, saves memory.
     lev <- readRDS(file.path(lev_dir, paste0("LEV_", suffix, ".rds")))
     dvars <- readRDS(file.path(dvars_dir, paste0("DVARS_", suffix, ".rds")))
-
+  
     FCval_ii <- vector("list")
-
-    # Get FC values ----------------------------------------------------------
+    
+    # Get FC values ----------------------------------------------------------  
     # Nothing
     cat("\tBase")
     FCval_ii[["Base"]] <- flag_wrap2_val()
@@ -209,38 +209,42 @@ for (baseName in baseNames) {
         this_name <- paste("FD", FD_type, FD_cut, sep="___")
         flag <- fd[[FD_type]] > FD_cut
         FCval_ii[[this_name]] <- flag_wrap2_val(
-          flag,
-          tmasks=ifelse(FD_type=="og", "default", "modFD_strict")
+          flag, 
+          tmasks=ifelse(
+            this_name=="FD___og_nfc_lf___0.2", 
+            "modFD_strict", 
+            "default"
+          )
         )
       }
     }
-
+    
     # Median leverage
     cat("\n\tLev")
-    medlev_cuts <- seq(3, 5)
+    medlev_cuts <- c(3, 4, 5)
     for (proj in colnames(lev$measure)) {
       if (!grepl("kurt", proj)) { next }
       for (medlev_cut in medlev_cuts) {
         this_name <- paste("Lev", proj, medlev_cut, sep="___")
         flag <- lev$measure[[proj]] > medlev_cut * median(lev$measure[[proj]])
         FCval_ii[[this_name]] <- flag_wrap2_val(flag)
-      }
+      } 
     }
-
+    
     # DVARS dual (DPD & ZD)
     cat("\n\tDVARS dual")
-    flag <- (dvars$dv$DPD > 5) & (dvars$dv$ZD > qnorm(1-.05/(hcp_T-nDrop)))
+    flag <- (dvars$dv$DPD > 5) & (dvars$dv$ZD > qnorm(1-.05/(hcp_T-nDrop))) 
     FCval_ii[["DVARSdual"]] <- flag_wrap2_val(flag)
     cat("\n")
-
+    
     saveRDS(FCval_ii, FCval_fname)
-
+    
     # Unload retest data.
     if (!test) {
       unlink(file.path(dir_HCP_retest, fnames$CIFTI))
       unlink(file.path(dir_HCP_retest, fnames$RP))
     }
-
+    
     print(Sys.time() - time)
     time <- Sys.time()
   }
