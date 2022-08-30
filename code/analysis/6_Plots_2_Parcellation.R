@@ -181,7 +181,6 @@ dev.off()
 
 pdf(plt_fmt("SubcortSlices_withMNI.pdf"))
 for (slicedim in c("x", "y", "z")) {
-  if (slicedim!="y") { next }
   cat(slicedim ,"\n")
   sliceseq <- seq(min(q[[slicedim]]), max(q[[slicedim]]))
   for (ss in sliceseq) {

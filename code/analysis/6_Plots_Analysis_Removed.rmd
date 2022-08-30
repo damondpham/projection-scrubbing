@@ -3559,3 +3559,169 @@ ggplot() +
 
 dev.off()
 ```
+
+# PCC & SMOT FC
+
+### Baseline grid plot
+
+```{r}
+plt_idx <- 10
+
+qB <- load_a_result("CC2MP6_Base", "meanFC")$meanFC[[1]][,1]
+qB <- cor_mat(qB)
+
+idx_PCC <- c(4, 202)
+idx_SMA <- c(157, 355)
+idx <- c(idx_PCC, idx_SMA)
+idx_names <- c("PCC-L", "PCC-R", "SMOT-L", "SMOT-R")
+
+qB <- qB[rev(idx),idx]
+
+pdf(plt_fmt(paste0("FC_PCC_SMOT_Baseline_Grid.pdf")), height=4, width=4)
+
+
+ggcorrplot(qB, outline.color = color_m[["darkGray"]], title="Baseline FC", digits=12) + 
+  scale_y_continuous(breaks=c(1, 2, 3, 4), labels=rev(idx_names)) +
+  scale_x_continuous(breaks=c(1, 2, 3, 4), labels=idx_names) +
+  coord_equal(expand=FALSE) +
+  coloring$diverging7(
+    c(-lim_FC, lim_FC), guide=guide_colorbar(title="FC", ticks.colour = "black", ticks.linewidth = 1), 
+    labels = function(x){gsub("0.", ".", x, fixed=TRUE)}, na.value="red"
+  ) +
+  theme(
+    panel.grid.major = element_blank(),
+    axis.text.y = element_text(margin=margin(r=10)),
+    axis.text.x = element_text(margin=margin(r=10)),
+    #axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "bottom"#, legend.text.align = 1
+  )
+
+dev.off()
+```
+
+### Line width values
+
+```{r}
+mnames <- c(
+  "Base",
+  "FD___og___", "FD___og_nfc_l4___",
+  "Lev___ICA", "Lev___fusedPCA", "Lev___PCA",
+  "DVARSdual"
+)
+mnames2 <- c(
+  "FD___og___0.5", "FD___og_nfc_l4___0.5", 
+  "Lev___ICA_kurt___5", "Lev___fusedPCA_kurt___5", "Lev___PCA_kurt___5",
+  "CC2MP6_DVARSdual_1185"
+)
+mnames3 <- c("FD", "modFD", "ICA", "FusedPCA", "PCA", "DVARS")
+
+q <- lapply(paste0("CC2MP6_", mnames), load_a_result, "meanFC")
+q <- do.call(cbind, lapply(q, function(x){x$meanFC[[1]]}))
+q <- q[,seq(2, 66)] - q[,1] # take diff from base
+q <- q[,mnames2]
+
+for (ii in seq(length(mnames2))) {
+  z <- cor_mat(q[,ii])
+  z <- z[idx,idx]
+  z <- z[lower.tri(z)]
+  print(c(mnames3[[ii]], 
+    mean(z[c(1,6)]) - mean(z[seq(2,5)])
+  ))
+}
+```
+
+```{r}
+z <- expand.grid(
+  p1 = seq(4),
+  p2 = seq(4)
+)
+z$idx <- NA
+
+for (ii in seq(nrow(z))) {
+  if (z$p1[ii] == z$p2[ii]) { next }
+  q <- matrix(FALSE, nrow=parc_res2, ncol=parc_res2)
+  q[idx[z$p1[ii]], idx[z$p2[ii]]] <- TRUE
+  q[idx[z$p2[ii]], idx[z$p1[ii]]] <- TRUE
+  q <- q[upper.tri(q)]
+  z$idx[ii] <- which(q)
+}
+
+z$p1n <- c("PCC-L", "PCC-R", "SMOT-L", "SMOT-R")[z$p1]
+z$p2n <- c("PCC-L", "PCC-R", "SMOT-L", "SMOT-R")[z$p2]
+```
+
+### Parcels on surface
+
+```{r}
+NetMat2 <- transform_xifti(
+  NetMat,
+  function(x){ifelse(x %in% c(idx_PCC, idx_SMA), x, 0)}
+)
+plot(
+  NetMat2, view="medial",
+  fname=plt_fmt(paste0("FC_PCC_SomMotA_Legend.png"))
+)
+```
+
+### Bar plot
+
+```{r}
+mnames <- c(
+  "Base",
+  "FD___og___", "FD___og_nfc_l4___",
+  "Lev___ICA", "Lev___fusedPCA", "Lev___PCA",
+  "DVARSdual"
+)
+mnames2 <- c(
+  "FD___og___0.5", "FD___og_nfc_l4___0.5", 
+  "Lev___ICA_kurt___5", "Lev___fusedPCA_kurt___5", "Lev___PCA_kurt___5",
+  "CC2MP6_DVARSdual_1185"
+)
+mnames3 <- c("FD", "modFD", "ICA", "FusedPCA", "PCA", "DVARS")
+
+q <- lapply(paste0("CC2MP6_", mnames), load_a_result, "meanFC")
+q <- do.call(cbind, lapply(q, function(x){x$meanFC[[1]]}))
+q <- q[,seq(2, 66)] - q[,1] # take diff from base
+q <- q[,mnames2]
+net_mask <- FC_mask$network$inter[,"Default"] & FC_mask$network$inter[,"SomMot"]
+q <- data.frame(
+  method = mnames3,
+  v1 = colMeans(q[!FC_mask$bs$inter[,"subcort"],]), # Mean change within the cortex
+  v2 = colMeans(q[net_mask,]), # Mean change among DMN-SomMot connections
+  c1 = q[z$idx[1],],  # This change
+  c2 = q[z$idx[2],],  # This change
+  c3 = q[z$idx[3],],  # This change
+  c4 = q[z$idx[4],]  # This change
+)
+
+q <- tidyr::pivot_longer(q, cols=seq(2,7))
+q$name <- factor(q$name, 
+  levels=c("v1", "v2", "c1", "c2", "c3", "c4"),
+  labels = c(
+    c("All inter-cortex"),
+    c("All DMN-SomMot"),
+    c("PCC-L & SMA-L"),
+    c("PCC-R & SMA-L"),
+    c("PCC-L & SMA-R"),
+    c("PCC-R & SMA-R")
+  )
+)
+q$method <- factor(q$method, levels=mnames3)
+
+pdf(plt_fmt(paste0("FC_PCC_SomMotA.pdf")), height=5, width=9)
+
+ggplot(q, aes(x=method, y=value, fill=name)) + 
+  geom_bar(stat="identity", position=position_dodge2(padding=0, preserve="single"), width=.75) +
+  geom_hline(yintercept=0, linetype="dashed") +
+  scale_fill_manual(
+    values=c(
+      color_m[["darkGray"]], color_m[["lightGray"]], 
+      "darkblue", "purple4", "slateblue", "royalblue1"),
+    name="Connection(s)") +
+  theme_cowplot() + ylab("Change in FC strength") + xlab("Scrubbing method")
+
+dev.off()
+
+rm(list=setdiff(ls(), varKeep))
+```

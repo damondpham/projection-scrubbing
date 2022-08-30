@@ -63,12 +63,12 @@ scrub_flag_overlap <- function(base) {
     )
     scan <- lapply(scan, readRDS)
     scan <- cbind(
-      LevICA = scan$Lev$measure$ICA_kurt > median(scan$Lev$measure$ICA_kurt) * 5,
-      LevFusedPCA = scan$Lev$measure$fusedPCA_kurt > median(scan$Lev$measure$fusedPCA_kurt) * 5,
-      LevPCA = scan$Lev$measure$PCA_kurt > median(scan$Lev$measure$PCA_kurt) * 5,
+      LevICA = scan$Lev$measure$ICA_kurt > median(scan$Lev$measure$ICA_kurt) * 3,
+      LevFusedPCA = scan$Lev$measure$fusedPCA_kurt > median(scan$Lev$measure$fusedPCA_kurt) * 3,
+      LevPCA = scan$Lev$measure$PCA_kurt > median(scan$Lev$measure$PCA_kurt) * 3,
       DVARS = (scan$DVARS$dv$DPD > 5) & (scan$DVARS$dv$ZD > qnorm(1-.05/(hcp_T-nDrop))),
-      FD = scan$FD$og > .5,
-      modFD = scan$FD$og_nfc_l4 > .5
+      FD = scan$FD$og > .3,
+      modFD = scan$FD$og_nfc_l4 > .2
     )
     colnames(scan) <- c("LevICA", "LevFusedPCA", "LevPCA", "DVARS", "FD", "modFD")
     scan <- lapply(pairs, function(p){scan[,p[1]] + scan[,p[2]] * 2})
@@ -86,7 +86,7 @@ scrub_flag_overlap2 <- function(base) {
     c("LevICA3", "DVARS"),
     c("LevICA2", "DVARS")
   )
-  
+
   overlap <- array(NA, dim=c(8, length(subjects), length(pairs), 3))
   dimnames(overlap) <- list(
     c(paste0("v", seq(4), "_LR"), paste0("v", seq(4), "_RL")),
@@ -101,10 +101,10 @@ scrub_flag_overlap2 <- function(base) {
     acquisition <- iters[ii, "acquisition"]
     test <- iters[ii, "test"]
     visit <- iters[ii, "visit"]
-    
+
     suffix <- paste0(subject, "_v", visit + (!test)*2, "_", acquisition)
     cat(suffix, "\n")
-    
+
     scan <- list(
       Lev = file.path(dir_scrubMeas, "Lev", base, paste0("LEV_", suffix, ".rds")),
       DVARS = file.path(dir_scrubMeas, "DVARS", base, paste0("DVARS_", suffix, ".rds"))
@@ -205,9 +205,9 @@ qc_fc <- function(x){
 }
 
 pbeta_make <- function(FC, what, parallel=FALSE) {
-  
+
   candidate_alphas <- c(0, .25, .5, .75, 1)
-  
+
   # Folds
   folds <- vector("numeric", nrow(dg))
   n_folds <- 8
@@ -220,10 +220,10 @@ pbeta_make <- function(FC, what, parallel=FALSE) {
   }
   cat("Folds:\n")
   print(table(folds))
-  
+
   split <- "subjects"
   FC <- matrix(FC, ncol=dim(FC)[3]) # as matrix
-  
+
   # Sex ------------------------------------------------------------------------
   if (what == "Sex") {
     cat("Sex", "\n")
@@ -232,25 +232,25 @@ pbeta_make <- function(FC, what, parallel=FALSE) {
       alpha <- candidate_alphas[jj]
       cat("Trying alpha=", alpha, "\n")
       q <- cv.glmnet(
-        FC, dg2$Gender, 
-        family="binomial", foldid=rep(folds, each=nVisits), 
+        FC, dg2$Gender,
+        family="binomial", foldid=rep(folds, each=nVisits),
         alpha=alpha, intercept=TRUE,
         parallel=parallel
       )
       alpha_error <- q$cvm[which(q$lambda == q$lambda.1se)]
-      if (alpha_error < alpha_error_best) { 
+      if (alpha_error < alpha_error_best) {
         q_best <- q; alpha_error_best <- alpha_error; alpha_best <- alpha
       }
     }
     cat("Best alpha:", alpha_best, "\n")
     lambda <- q_best$lambda.1se
     return(list(
-      betas=q_best$glmnet.fit$beta[,which(q_best$lambda == lambda)], 
+      betas=q_best$glmnet.fit$beta[,which(q_best$lambda == lambda)],
       lambda=lambda,
       alpha=alpha_best
     ))
   }
-  
+
   # Cog_* ----------------------------------------------------------------------
   else {
     candidate_alphas=c(.25, .5, .75, 1)
@@ -270,14 +270,14 @@ pbeta_make <- function(FC, what, parallel=FALSE) {
         family="gaussian", foldid=rep(folds[sex_mask], each=nVisits), alpha=alpha
       )
       alpha_error <- q$cvm[which(q$lambda == q$lambda.1se)]
-      if (alpha_error < alpha_error_best) { 
+      if (alpha_error < alpha_error_best) {
         q_best <- q; alpha_error_best <- alpha_error; alpha_best <- alpha
       }
     }
     cat("Best alpha:", alpha_best, "\n")
     lambda <- q_best$lambda.1se
     return(list(
-      betas=q_best$glmnet.fit$beta[,which(q_best$lambda == lambda)], 
+      betas=q_best$glmnet.fit$beta[,which(q_best$lambda == lambda)],
       lambda=lambda,
       alpha=alpha_best
     ))
@@ -285,7 +285,7 @@ pbeta_make <- function(FC, what, parallel=FALSE) {
 }
 
 pred_make <- function(FC, ii=1, what, parallel=FALSE) {
-  
+
   # Folds
   folds <- foldss <- vector("numeric", nrow(dg))
   n_folds <- 8
@@ -297,13 +297,13 @@ pred_make <- function(FC, ii=1, what, parallel=FALSE) {
       foldss[idx] <- with(set.seed(ii), sample(folds[idx]))
     }
   }
-  
+
   FC <- matrix(FC, ncol=dim(FC)[3]) # as matrix
-  
+
   preds <- vector("numeric", nSubjects*nVisits) * NA
   alpha_best <- vector("numeric", n_folds) * NA
   #colnames(preds) <- names(alpha_best) <- c("Sex", "Cog_F", "Cog_M")
-  
+
   # Sub-folds
   for (fold_id in seq(n_folds)) {
     cat("--------------------\n")
@@ -315,9 +315,9 @@ pred_make <- function(FC, ii=1, what, parallel=FALSE) {
     foldss2 <- rep(as.numeric(factor(foldss[idx_train])), each=nVisits)
     idx_train2 <- which(rep(foldss, each=4) != fold_id)
     idx_test2 <- which(rep(foldss, each=4) == fold_id)
-    
+
     candidate_alphas <- c(0, .25, .5, .75, 1)
-    
+
     # Sex ----------------------------------------------------------------------
     if (what == "Sex") {
       cat("Sex\n")
@@ -332,7 +332,7 @@ pred_make <- function(FC, ii=1, what, parallel=FALSE) {
           parallel=parallel
         )
         alpha_error <- q$cvm[which(q$lambda == q$lambda.1se)]
-        if (alpha_error < alpha_error_best) { 
+        if (alpha_error < alpha_error_best) {
           q_best <- q; alpha_error_best <- alpha_error; alpha_best[fold_id] <- alpha
         }
         print(Sys.time() - ti); ti <- Sys.time()
@@ -342,7 +342,7 @@ pred_make <- function(FC, ii=1, what, parallel=FALSE) {
         q_best, FC[idx_test2,,drop=FALSE], type="response"
       )
     }
-    
+
     # Cog_* --------------------------------------------------------------------
     else if (what %in% c("Cog_F", "Cog_M")) {
       candidate_alphas=c(.25, .5, .75, 1)
@@ -377,7 +377,7 @@ pred_make <- function(FC, ii=1, what, parallel=FALSE) {
         q_best, FC[mask_pred,,drop=FALSE], type="response"
       )
     }
-    
+
     else if (what %in% c("Vocab")) {
       candidate_alphas <- .5
       cat("Vocab\n")
@@ -392,7 +392,7 @@ pred_make <- function(FC, ii=1, what, parallel=FALSE) {
           parallel=parallel
         )
         alpha_error <- q$cvm[which(q$lambda == q$lambda.1se)]
-        if (alpha_error < alpha_error_best) { 
+        if (alpha_error < alpha_error_best) {
           q_best <- q; alpha_error_best <- alpha_error; alpha_best[fold_id] <- alpha
         }
         print(Sys.time() - ti); ti <- Sys.time()
@@ -402,7 +402,7 @@ pred_make <- function(FC, ii=1, what, parallel=FALSE) {
         q_best, FC[idx_test2,,drop=FALSE], type="response"
       )
     }
-    
+
     else { stop("What is ", what, "?") }
   }
   list(preds=preds, alpha_best=alpha_best)
