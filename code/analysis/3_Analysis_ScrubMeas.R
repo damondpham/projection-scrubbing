@@ -163,7 +163,6 @@ splits <- pmax(1, splits)
 subs <- meanFD[round(splits),]
 baseNames <- c("MPP", "DCT4", "36P", "CC2MP6", "CC2MP24", "32P")
 
-dir_ciiDN <- file.path(dir_results, "ciiDN")
 get_intercept <- function(Y, design, int_idx=1){
   stopifnot(var(design[,int_idx])==0)
   Z <- design
@@ -459,7 +458,7 @@ for (ii in seq(nrow(subs))) {
 
   print(cowplot::plot_grid(plotlist=plt[c("fd", "modfd", "dv", "lev")], ncol=1, align="v"))
   ggplot2::ggsave(file.path(
-    dir_carpetPlots,
+    dir_scrubMeasPlots,
     paste0(subject, "_v", visit + (!test)*2, "_", acquisition, "_scrubMeas_xticks.pdf")
   ), width=5, height=4.5)
 
@@ -473,7 +472,7 @@ for (ii in seq(nrow(subs))) {
 
   print(cowplot::plot_grid(plotlist=plt[c("fd", "modfd", "dv", "lev")], ncol=1, align="v"))
   ggplot2::ggsave(file.path(
-    dir_carpetPlots,
+    dir_scrubMeasPlots,
     paste0(subject, "_v", visit + (!test)*2, "_", acquisition, "_scrubMeas.pdf")
   ), width=5, height=4.5)
 
@@ -496,7 +495,7 @@ for (ii in seq(nrow(subs))) {
   fMRIscrub::carpetplot(
     add_sep(abs(ic$M[,which(ic$highkurt)])), center=FALSE, qcut=.001, colors=pcols,
     width=15, height=6,
-    fname=file.path(dir_carpetPlots, paste0(subject, "_v", visit + (!test)*2, "_", acquisition, "_ickplot.pdf"))
+    fname=file.path(dir_scrubMeasPlots, paste0(subject, "_v", visit + (!test)*2, "_", acquisition, "_ickplot.pdf"))
   )
 
   # Component signal time series -----------------------------------------------
@@ -566,7 +565,7 @@ for (ii in seq(nrow(subs))) {
       }
 
       ggplot2::ggsave(file.path(
-        dir_carpetPlots,
+        dir_scrubMeasPlots,
         paste0(
           subject, "_v", visit + (!test)*2, "_", acquisition,
           "_ICmixing", ifelse(squareVals, "_sqVals", ""),
@@ -584,7 +583,7 @@ for (ii in seq(nrow(subs))) {
     jj2s <- gsub(" ", "0", format(jj2, width=3))
     y <- plot(newdata_xifti(xii, ic$S[,jj2]), zlim=c(-5, 5), what="surf", legend_embed=FALSE, height=1000, width=1400, fname=tempfile())
     z <- plot(newdata_xifti(xii, ic$S[,jj2]), zlim=c(-5, 5), what="vol", legend_embed=FALSE, height=1000, width=750, fname=tempfile())
-    png(file.path(dir_carpetPlots, paste0(prfx, jj2s, "_high.png")), width=1900, height=1000)
+    png(file.path(dir_scrubMeasPlots, paste0(prfx, jj2s, "_high.png")), width=1900, height=1000)
     ciftiTools::view_comp(c(y[1], z[1]), nrow=1, widths=c(1.7, 1))
     dev.off()
   }
@@ -594,7 +593,7 @@ for (ii in seq(nrow(subs))) {
     jj2s <- gsub(" ", "0", format(jj2, width=3))
     y <- plot(newdata_xifti(xii, ic$S[,jj2]), zlim=c(-5, 5), what="surf", legend_embed=FALSE, height=1000, width=1400, fname=tempfile())
     z <- plot(newdata_xifti(xii, ic$S[,jj2]), zlim=c(-5, 5), what="vol", legend_embed=FALSE, height=1000, width=750, fname=tempfile())
-    png(file.path(dir_carpetPlots, paste0(prfx, jj2s, "_low.png")), width=1900, height=1000)
+    png(file.path(dir_scrubMeasPlots, paste0(prfx, jj2s, "_low.png")), width=1900, height=1000)
     ciftiTools::view_comp(c(y[1], z[1]), nrow=1, widths=c(1.7, 1))
     dev.off()
   }

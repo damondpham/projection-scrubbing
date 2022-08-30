@@ -51,6 +51,8 @@ dir_FCval <- file.path(dir_project, "analysis-results/3_FCval")
 dir_FC_shorter <- file.path(dir_project, "analysis-results/3_FC_shorter")
 dir_analysis <- file.path(dir_project, "analysis-results/4_Analysis")
 dir_carpetPlots <- file.path(dir_analysis, "carpetPlots")
+dir_ciiDN <- file.path(dir_analysis, "ciiDN")
+dir_scrubMeasPlots <- file.path(dir_analysis, "scrubMeasPlots")
 dir_plots <- file.path(dir_project, "plots")
 
 parc_cii_fname <- file.path(dir_Parc, "Schaefer2018_400Parcels_Kong2022_17Networks_order.dlabel.nii")
