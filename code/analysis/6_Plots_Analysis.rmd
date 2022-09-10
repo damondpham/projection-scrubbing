@@ -983,14 +983,20 @@ q$method <- factor(
 baseICC <- mean(load_a_result("CC2MP6_Base")$ICC31[[1]])
 q$v <- q$v - baseICC
 
+q <- subset(q, method!="FD" | cut >=.3)
+q <- subset(q, method!="modFD" | cut >=.2)
+q <- subset(q, method!="ICA" | cut >=3)
+q <- subset(q, method!="FusedPCA" | cut >=3)
+q <- subset(q, method!="PCA" | cut >=3)
+
 q <- subset(q, v2 < hcp_T*.48) # .06
 q <- tidyr::pivot_longer(q, c("v", "v3"))
 q$name <- factor(q$name, levels=c("v", "v3"), labels=c("ICC(3,1)", "MAC"))
-logjust <- 100
+logjust <- 16# 100
 
 q$big <- FALSE
-q$big[q$method=="FD" & q$cut==.2] <- TRUE
-q$big[q$method=="modFD" & q$cut==.3] <- TRUE
+q$big[q$method=="FD" & q$cut==.3] <- TRUE
+q$big[q$method=="modFD" & q$cut==.2] <- TRUE
 q$big[q$method=="ICA" & q$cut==3] <- TRUE
 q$big[q$method=="FusedPCA" & q$cut==3] <- TRUE
 q$big[q$method=="PCA" & q$cut==3] <- TRUE
@@ -998,7 +1004,7 @@ q$big[q$method=="DVARS"] <- TRUE
 ```
 
 ```{r}
-pdf(plt_fmt(paste0("NumScrubbed_vs_ICC_MAC.pdf")), width=5, height=15)
+pdf(plt_fmt(paste0("NumScrubbed_vs_ICC_MAC.pdf")), width=5, height=10)
 
 p1 <- ggplot(q, aes(x=v2 + logjust, y=value, color=method)) + 
   scale_size_manual(values=c(1, 2.8)) +
@@ -1011,12 +1017,13 @@ p1 <- ggplot(q, aes(x=v2 + logjust, y=value, color=method)) +
   xlab("% frames removed") + ylab("Mean ICC") +
   scale_color_manual(values=color_m[levels(q$method)]) +
   scale_fill_manual(values=color_m[levels(q$method)]) +
+  coord_cartesian(xlim=logjust + 1185* c(0, .2)) +
   scale_x_continuous(
-    limits=logjust + 1185* c(0, .5),
-    breaks=logjust + 1185 * c(0, .01, .02, .05, .1, .2, .5), 
-    labels=paste0(" ", c(0, 1, 2, 5, 10 , 20, 50), "%"),
-    trans="pseudo_log"
-  ) + theme_bw() + 
+    breaks=logjust + 1185 * c(0, .01, .02, .05, .1, .2), 
+    labels=paste0(" ", c(0, 1, 2, 5, 10 , 20), "%"),
+    trans="log1p"
+  ) + 
+  theme_bw() + 
   labs(color="Scrubbing method") +
   cowplot::theme_cowplot() +
   theme(legend.position = "bottom") +
@@ -1025,10 +1032,12 @@ p1 <- ggplot(q, aes(x=v2 + logjust, y=value, color=method)) +
 p1 + geom_line(stat="smooth", method = "lm", formula = y ~ x + I(x^2), alpha=.3, se=FALSE) +
   geom_smooth(method = "lm", formula = y ~ x + I(x^2), aes(fill=method), size=.8, alpha=.1) +
   geom_point(aes(size=big))
-p1 + geom_line(size=1, alpha=.5) + geom_point(aes(size=big))
+
+p1 + geom_line(size=1, alpha=.5) + 
+  geom_point(aes(size=big))
 
 dev.off()
-rm(list=setdiff(ls(), varKeep))
+#rm(list=setdiff(ls(), varKeep))
 ```
 
 # G. Overlap
@@ -1084,12 +1093,20 @@ rm(list=setdiff(ls(), varKeep))
 
 ```{r}
 plt_idx <- "H"
+snames <- c(
+  "250427_v2_RL", #95th
+  "111312_v2_LR", #45th
+  "917255_v2_RL", 
+  "250427_v2_LR", 
+  "125525_v1_LR", #65th
+  "135528_v2_LR", #25th
+  "177746_v2_RL" #5th
+)
 ```
 
 ```{r}
-pdf(plt_fmt("ScrubMeas_Timecourse.pdf"), width=80, height=4.5)
+pdf(plt_fmt("ScrubMeas_Timecourse.pdf"), width=85, height=4.5)
 
-snames <- c("250427_v2_RL", "111312_v2_LR", "917255_v2_RL", "250427_v2_LR", "125525_v1_LR")
 z <- setNames(as.list(snames), snames)
 for (sname_ss in snames) {
   x <- list(
@@ -1105,7 +1122,8 @@ for (sname_ss in snames) {
     DVARS = x$DVARS$dv$ZD / qnorm(1 - .05 / 1185)
   ))
   z[[sname_ss]] <- tidyr::pivot_longer(y, seq(2,5))
-  z[[sname_ss]]$name <- factor(z[[sname_ss]]$name, levels=c("FD", "modFD", "ICA", "DVARS"))
+  z[[sname_ss]]$name <- factor(z[[sname_ss]]$name, levels=c("FD", "modFD", "DVARS", "ICA"))
+  
   q <- ggplot(z[[sname_ss]], aes(x=idx, y=value, color=name)) + geom_line() + 
     geom_line(data=subset(z[[sname_ss]], name=="ICA")) +
     geom_hline(yintercept=0) +
@@ -1114,7 +1132,7 @@ for (sname_ss in snames) {
     theme_cowplot() +
     theme(legend.position="none") +
     coord_cartesian(xlim=c(0, 1185), ylim=c(-.5, 4), expand=FALSE) +
-    scale_x_continuous(breaks=seq(118) * 10) +
+    scale_x_continuous(breaks=seq(1185) * 1, labels=ifelse(seq(1185) %% 10 == 0, seq(1185), "")) +
     xlab("Timepoint") + ylab("Value/Threshold") + ggtitle(sname_ss)
   print(q)
 }
@@ -1124,46 +1142,118 @@ dev.off()
 ```{r}
 lims <- setNames(list(
   c(386, 584),
-  c(727, 795, 892),
-  c(102, 751),
-  c(529, 799),
-  c(672, 868, 918, 1113)
+  727,#c(727, 795, 892),
+  NULL,#c(102, 751),
+  799,#c(529, 799),
+  1113,#c(672, 868, 918, 1113)
+), snames)
+
+hilite <- setNames(list(
+  list(c(7,8,9), 6),
+  list(c(4,5,6,7)),
+  NULL,
+  list(c(0,1,2)),
+  list(c(-2, -1, 0))#list(c(0,1), c(-1, 0), c(11, 12), c(-2, -1, 0))
+), snames)
+
+ok <- setNames(list(
+  c(-6, -5),
+  -5,
+  NULL,
+  -5,
+  c(-5, -7, -5, -7)
 ), snames)
 
 pdf(plt_fmt("ScrubMeas_Timecourse_Selection.pdf"), width=6, height=4.5)
 for (sname_ss in snames) {
   lims_ss <- lims[[sname_ss]]
+  if (is.null(lims_ss)) { next }
   for (ii in seq(length(lims_ss))) {
+    lims_ii <- lims_ss[ii]
+    hilite_ii <- hilite[[sname_ss]][[ii]]
+    ok_ii <- ok[[sname_ss]][ii]
     
-    q <- ggplot(z[[sname_ss]], aes(x=idx - lims[[sname_ss]][ii], y=value, color=name)) + geom_line() + 
-      geom_line(data=subset(z[[sname_ss]], name=="ICA")) +
+    hilite_df <- data.frame(x=hilite_ii+lims_ii, y=2, width=1, height=8)
+    ok_df <- data.frame(x=ok_ii+lims_ii, y=2, width=1, height=8)
+    
+    z[[sname_ss]] <- subset(z[[sname_ss]], name %in% c("modFD", "ICA"))
+    z[[sname_ss]]$p <- z[[sname_ss]]$idx %in% (c(ok_ii, hilite_ii)+lims_ii)
+    
+    q <- ggplot(z[[sname_ss]], aes(x=idx, y=value, color=name)) + 
+      geom_tile(aes(x=x,y=y, width=width,height=height), data=hilite_df, fill="#ffdddd", color="#ffdddd") +
+      geom_tile(aes(x=x,y=y, width=width,height=height), data=ok_df, fill="#ddeeee", color="#ddeeee") +
+      geom_line(size=.7) + 
+      geom_point(data=subset(z[[sname_ss]], p), size=2) +
       geom_hline(yintercept=0) +
-      geom_vline(xintercept=0, linetype="dotted") +
+      #geom_vline(xintercept=0, linetype="dotted") +
       geom_hline(yintercept=1, linetype="dashed") +
       scale_color_manual(values=color_m) +
       theme_cowplot() +
       theme(legend.position="none") +
-      coord_cartesian(xlim=c(-10, 20), ylim=c(-.5, 4), expand=FALSE) +
-      scale_x_continuous(breaks=seq(118) * 10) +
-      xlab("Volumes after first motion peak?") + ylab("Value/Threshold") + ggtitle(sname_ss)
+      coord_cartesian(xlim=c(ok_ii-2, max(hilite_ii)+5)+lims_ii, ylim=c(-.5, 6), expand=FALSE) +
+      scale_x_continuous(breaks=seq(1185) * 1, labels=ifelse(seq(1185) %% 10 == 0, seq(1185), "")) +
+      xlab("Timepoint") + ylab("Value/Threshold") + ggtitle(sname_ss)
     print(q)
   }
 }
 dev.off()
 ```
 
-### New
+```{r}
+xii0 <- read_cifti(file.path(dir_data_misc, "rfMRI_empty.dtseries.nii"), brainstructures="all")
+
+for (sname_ss in snames) {
+  lims_ss <- lims[[sname_ss]]
+  if (is.null(lims_ss)) { next }
+  z <- readRDS(file.path(dir_analysis, "ciiDN", paste0(sname_ss, "_ciiDN_CC2MP6.rds"))) + readRDS(file.path(dir_analysis, "ciiDN", paste0(sname_ss, "_ciiDN_CC2MP6_int.rds"))) 
+  for (ii in seq(length(lims_ss))) {
+    lims_ii <- lims_ss[ii]
+    hilite_ii <- hilite[[sname_ss]][[ii]] + lims_ii
+    ok_ii <- ok[[sname_ss]][ii] + lims_ii
+    for (jj in seq(length(hilite_ii))) {
+      fname_jj <- plt_fmt(paste0(sname_ss, "_t", lims_ss[ii], "_j", jj))
+      plot(
+        newdata_xifti(xii0, z), zlim=c(5000, 15000), idx=hilite_ii[jj],
+        title=paste0("T=", hilite_ii[jj]), text_color="#cc6666", fname=fname_jj
+      )
+    }
+    fname_c <- plt_fmt(paste0(sname_ss, "_t", lims_ss[ii], "_c"))
+    plot(
+      newdata_xifti(xii0, z), zlim=c(5000, 15000), idx=ok_ii,
+      title=paste0("T=", ok_ii), text_color="#669999", fname=fname_c
+    )
+  }
+}
+```
 
 ```{r}
-snames <- c("250427_v2_RL", "111312_v2_LR", "250427_v2_LR", "125525_v1_LR")
-lims <- setNames(list(
-  c(386, 584),
-  c(727, 795, 892),
-  c(102, 751),
-  c(529, 799),
-  c(672, 868, 918, 1113)
-), snames)
+xii0 <- read_cifti(file.path(dir_data_misc, "rfMRI_empty.dtseries.nii"), brainstructures="all")
+
+for (sname_ss in snames) {
+  lims_ss <- lims[[sname_ss]]
+  if (is.null(lims_ss)) { next }
+  z <- readRDS(file.path(dir_analysis, "ciiDN", paste0(sname_ss, "_ciiDN_CC2MP6.rds"))) + mean(readRDS(file.path(dir_analysis, "ciiDN", paste0(sname_ss, "_ciiDN_CC2MP6_int.rds"))))
+  for (ii in seq(length(lims_ss))) {
+    lims_ii <- lims_ss[ii]
+    hilite_ii <- hilite[[sname_ss]][[ii]] + lims_ii
+    ok_ii <- ok[[sname_ss]][ii] + lims_ii
+    for (jj in seq(length(hilite_ii))) {
+      fname_jj <- plt_fmt(paste0(sname_ss, "_gmean_t", lims_ss[ii], "_j", jj))
+      plot(
+        newdata_xifti(xii0, z), zlim=c(9500, 11500), idx=hilite_ii[jj],
+        title=paste0("T=", hilite_ii[jj]), text_color="#cc6666", fname=fname_jj
+      )
+    }
+    fname_c <- plt_fmt(paste0(sname_ss, "_gmean_t", lims_ss[ii], "_c"))
+    plot(
+      newdata_xifti(xii0, z), zlim=c(9500, 11500), idx=ok_ii,
+      title=paste0("T=", ok_ii), text_color="#669999", fname=fname_c
+    )
+  }
+}
 ```
+
+### Old
 
 ```{r}
 make_BOLD_plot <- function(cii, cii_name, idx_main ,idx_sub, idx_sub_names, idx_sub_order){
@@ -1607,9 +1697,9 @@ myLabs <- c(
   FD___og_nfc_l4___0.4="modFD\n0.4 mm",
   FD___og___0.5="FD\n0.5 mm",
   FD___og_nfc_l4___0.5="modFD\n0.5 mm",
-  Lev___ICA_kurt___3="ICA Proj.\n3*med",
-  Lev___ICA_kurt___4="ICA Proj.\n4*med",
-  Lev___ICA_kurt___5="ICA Proj.\n5*med",
+  Lev___ICA_kurt___3="ICA Proj.\n3x",
+  Lev___ICA_kurt___4="ICA Proj.\n4x",
+  Lev___ICA_kurt___5="ICA Proj.\n5x",
   DVARSdual="DVARS"
 )
 
@@ -1879,8 +1969,8 @@ mnames <- c(
   "DVARSdual"
 )
 mnames2 <- c(
-  "FD___og___0.5", "FD___og_nfc_l4___0.5", 
-  "Lev___ICA_kurt___5", "Lev___fusedPCA_kurt___5", "Lev___PCA_kurt___5",
+  "FD___og___0.3", "FD___og_nfc_l4___0.2", 
+  "Lev___ICA_kurt___3", "Lev___fusedPCA_kurt___3", "Lev___PCA_kurt___3",
   "CC2MP6_DVARSdual_1185"
 )
 mnames3 <- c("FD", "modFD", "ICA", "FusedPCA", "PCA", "DVARS")
@@ -1939,6 +2029,8 @@ ggplot() +
 dev.off()
 ```
 
+### but w/ t=400
+
 ```{r}
 q0 <- setNames(vector("list", length(bnames)), bnames)
 for (bname in bnames) {
@@ -1993,6 +2085,8 @@ ggplot() +
 
 rm(list=setdiff(ls(), varKeep))
 ```
+
+
 
 # P. In-depth scrubbing cutoff comparison
 
