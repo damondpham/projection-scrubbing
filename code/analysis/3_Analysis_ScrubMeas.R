@@ -90,16 +90,17 @@ splits <- pmax(1, splits)
 subs <- meanFD[round(splits),]
 baseNames <- "CC2MP6" #c("MPP", "DCT4", "CC2MP6")
 
-## 11 Sessions -----------------------------------------------------------------
+## 9 Sessions ------------------------------------------------------------------
 library(ggplot2)
 library(cowplot)
 
-dfgg <- vector("list", nrow(subs))
-for (ii in seq(nrow(subs))) {
-  subject <- subs[ii, "subject"]
-  acquisition <- subs[ii, "acquisition"]
-  test <- subs[ii, "test"]
-  visit <- subs[ii, "visit"]
+subs_9 <- subs[seq(2,10),]
+dfgg <- vector("list", nrow(subs_9))
+for (ii in seq(nrow(subs_9))) {
+  subject <- subs_9[ii, "subject"]
+  acquisition <- subs_9[ii, "acquisition"]
+  test <- subs_9[ii, "test"]
+  visit <- subs_9[ii, "visit"]
   id <- paste0(subject, "_v", visit + (!test)*2, "_", acquisition)
   scrubMeas <- list(
     lev = readRDS(file.path(dir_scrubMeas, "Lev/CC2MP6", paste0("LEV_", id, ".rds"))),
@@ -117,7 +118,7 @@ for (ii in seq(nrow(subs))) {
 
 dfgg <- do.call(rbind, dfgg)
 dfgg <- tidyr::pivot_longer(dfgg, seq(3,5))
-dfgg$idx <- factor(dfgg$idx, levels=seq(1, 11), labels=paste0((seq(0, 10))/10*100, "%"))
+dfgg$idx <- factor(dfgg$idx, levels=seq(1, 9), labels=paste0((seq(1, 9))/10*100, "%"))
 dfgg$name <- factor(dfgg$name, levels=c("FD", "modFD", "proj_ICA"))
 
 p1 <- ggplot(subset(dfgg, name=="FD"), aes(x=v, y=value)) +
@@ -150,7 +151,7 @@ p3 <- ggplot(subset(dfgg, name=="proj_ICA"), aes(x=v, y=value)) +
   coord_cartesian(clip="off") +
   theme_cowplot()
 
-pdf(file.path(dir_analysis, "qual_threshold/11sub.pdf"), width=10, height=17)
+pdf(file.path(dir_analysis, "scrubMeasPlots/9sub.pdf"), width=14, height=17)
 cowplot::plot_grid(p1, p2, p3, nrow=1)
 dev.off()
 
@@ -167,7 +168,7 @@ get_intercept <- function(Y, design, int_idx=1){
   stopifnot(var(design[,int_idx])==0)
   Z <- design
 	if(nrow(Y) != nrow(Z)) stop('Y and Z must have same number of rows')
- 	invZtZ <- solve(crossprod(Z)) 
+ 	invZtZ <- solve(crossprod(Z))
 	betahat <- invZtZ %*% t(Z) %*% Y
 	betahat[int_idx,]
 }
@@ -186,25 +187,25 @@ for (ii in seq(nrow(subs))) {
 
   cat("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
   cat(paste0(
-    "Subject ", subject, ", ", as.character(acquisition), " ", 
-    ifelse(test, "test", "retest"), " ", visit, 
+    "Subject ", subject, ", ", as.character(acquisition), " ",
+    ifelse(test, "test", "retest"), " ", visit,
     " (", ii, " of ", nrow(subs), ")", "\n"
   ))
   cat("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
 
   prefix <- paste0(subject, "_v", visit + (!test)*2, "_", acquisition)
-  
+
   skip <- TRUE
   if ("saveDN" %in% do) {
     all_ciiDN_fname <- paste0(prefix, "_ciiDN_", baseNames, ".rds")
-    if (!all(file.exists(file.path(dir_ciiDN, all_ciiDN_fname)))) { 
-      skip <- FALSE 
+    if (!all(file.exists(file.path(dir_ciiDN, all_ciiDN_fname)))) {
+      skip <- FALSE
     }
   }
   if ("carpet" %in% do) {
     all_carpet_fname <- paste0(prefix, "_carpetplot_", baseNames, ".pdf")
-    if (!all(file.exists(file.path(dir_carpetPlots, all_carpet_fname)))) { 
-      skip <- FALSE 
+    if (!all(file.exists(file.path(dir_carpetPlots, all_carpet_fname)))) {
+      skip <- FALSE
     }
   }
   if ("pscrub" %in% do) {
@@ -212,8 +213,8 @@ for (ii in seq(nrow(subs))) {
       dir_scrubMeas, "Lev_withDirs", baseNames,
       paste0("LEV_", prefix, ".rds")
     )
-    if (!all(file.exists(all_lev_fname))) { 
-      skip <- FALSE 
+    if (!all(file.exists(all_lev_fname))) {
+      skip <- FALSE
     }
   }
   if (skip) { cat("Skipping.\n"); next }
@@ -222,7 +223,7 @@ for (ii in seq(nrow(subs))) {
   cat("Input files.\n")
   # Mean signals
   ms_fname <- file.path(
-    dir_meanSignals, 
+    dir_meanSignals,
     paste0(
       subject, "_v", visit + (!test)*2, "_", acquisition, ".rds"
     )
@@ -232,7 +233,7 @@ for (ii in seq(nrow(subs))) {
 
   # CompCor
   cc_fname <- file.path(
-    dir_CompCor, 
+    dir_CompCor,
     paste0(
       subject, "_v", visit + (!test)*2, "_", acquisition, ".rds"
     )
@@ -240,10 +241,10 @@ for (ii in seq(nrow(subs))) {
   cc <- readRDS(cc_fname)
   cc <- cbind(cc$PCs$wm_cort[,seq(5)], cc$PCs$csf[,seq(5)], cc$PCs$wm_cblm[,seq(5)])
   cc <- scale(cc)
-  
+
   # CIFTI
   fname_prefix <- paste0("rfMRI_REST", visit, "_", acquisition)
-  
+
   if (COMPUTER == "RED") {
     data_dir <- file.path(subject, "MNINonLinear", "Results", fname_prefix)
     fnames <- list(
@@ -254,7 +255,7 @@ for (ii in seq(nrow(subs))) {
       RP = file.path(data_dir, "Movement_Regressors.txt")
     )
     cii_fname <- file.path(ifelse(test, dir_HCP_test, dir_HCP_retest), fnames$CIFTI)
-  
+
     # If retest, the data needs to be loaded.
     if (!test) {
       if (useFIX) {
@@ -282,7 +283,7 @@ for (ii in seq(nrow(subs))) {
         data_zip_MPP <- file.path(
           dir_HCP_retest_archive, paste0(subject, "_3T_rfMRI_REST", visit, "_preproc.zip")
         )
-    
+
         for (fname in fnames) {
           if (!file.exists(file.path(dir_HCP_retest, fname))) {
             cmd <- paste("unzip", data_zip_MPP, fname, "-d", dir_HCP_retest)
@@ -292,9 +293,9 @@ for (ii in seq(nrow(subs))) {
         }
       }
     }
-  
+
     rp <- read.table(file.path(ifelse(test, dir_HCP_test, dir_HCP_retest), fnames$RP))
-  
+
   # on Personal Computer -------------------------------------------------------
   } else {
     cii_fname <- ifelse(useFIX,
@@ -303,9 +304,9 @@ for (ii in seq(nrow(subs))) {
     )
     rp <- read.table(file.path(dir_data_misc, "SelectedScans", paste0(subject, "_", fname_prefix, "_Movement_Regressors.txt")))
   }
-  
+
   # ----------------------------------------------------------------------------
-  
+
   p6 <- scale(rp[seq(nDrop+1, hcp_T),seq(6)])
   p36 <- scale(cbind(ms, rbind(0, diff(ms)), rp))
   p36 <- scale(cbind(p36, p36^2)[seq(nDrop+1, hcp_T),])
@@ -314,12 +315,12 @@ for (ii in seq(nrow(subs))) {
   cii0 <- as.matrix(read_cifti(cii_fname, brainstructures="all"))[,seq(nDrop+1, hcp_T)]
 
   time <- Sys.time()
-  
+
   # Get cleaned CIFTI data and leverage from each denoising method -------------
   cat("CIFTI data and leverage.\n")
   for (baseName in baseNames) {
 
-    # Nuisance regression 
+    # Nuisance regression
     cat(baseName, "\n")
     nreg <- switch(baseName,
       CC2 = cbind(1, dct4, cc[,c(1,2,6,7,11,12)]),
@@ -346,7 +347,7 @@ for (ii in seq(nrow(subs))) {
     if ("carpet" %in% do) {
       carpet_fname <- paste0(prefix, "_carpetplot_", baseName, ".pdf")
       if (!file.exists(carpet_fname)) {
-        carpetplot(t(cii_b), 
+        carpetplot(t(cii_b),
           fname=file.path(dir_carpetPlots, carpet_fname),
           width=16, height=3
         )
@@ -378,9 +379,9 @@ for (ii in seq(nrow(subs))) {
 
     print(Sys.time() - time)
     time <- Sys.time()
-    cat("\n") 
+    cat("\n")
   }
-  
+
   # Unload retest data.
   if (!test && COMPUTER=="RED") {
     unlink(file.path(dir_HCP_retest, fnames$CIFTI))
