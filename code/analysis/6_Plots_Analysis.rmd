@@ -24,6 +24,7 @@ hcp_dg_S1200$Age <- factor(hcp_dg_S1200$Age)
 library(ggplot2)
 library(ggpubr)
 library(ggcorrplot)
+library(ggridges)
 library(viridis)
 library(rgl)
 library(misc3d)
@@ -61,7 +62,7 @@ color_pals <- list(
       "#0000ff", "#99bbff", "#ccffff", "#f9fff9", 
       "#ffffcc", "#ffbb99", "#ff0000"
     ),
-    v = c(0, .4, .49, .5, .51, .6, 1)
+    v = c(0, .32, .42, .5, .58, .68, 1)
   )
 )
 
@@ -421,6 +422,133 @@ for (ii in seq(length(toShow))) {
   print(q)
   
 } 
+
+dev.off()
+```
+
+### FC strength intra- vs inter-
+
+```{r}
+toShow <- list(
+  c("Baselines_HCP__ICA-FIX", "Baselines_HCP__ICA-FIX_1185", "HCP ICA-FIX"),
+  c("Baselines_None", "None__DCT4", "DCT4"),
+  c("Baselines_None", "None__DCT0", "MPP"),
+  c("Baselines_CC2MP", "CC2MP__06P_DCT4", "CC2MP6"),
+  c("Baselines_CC5MP", "CC5MP__06P_DCT4", "CC5MP6"),
+  c("Baselines_36P", "36P__whole_DCT4", "36P")
+)
+```
+
+```{r}
+bnames <- c("None", "CompCor", "CC2MP", "CSF-WM", "9P", "36P", "HCP__ICA-FIX")
+q <- lapply(paste0("Baselines_", bnames), load_a_result, "meanFCz")
+q <- do.call(cbind, do.call(cbind, lapply(q, function(x){x$meanFCz})))
+colnames(q)[grepl("HCP__ICA-FIX", colnames(q))] <- "HCP__ICA-FIX"
+q <- q[,!grepl("grayo", colnames(q))]
+q <- q[,!grepl("DCT0", colnames(q))]
+bnames <- colnames(q)
+bnames2 <- gsub("_DCT4|__DCT4", "", bnames)
+bnames2 <- gsub("CompCor__PC", "CC", bnames2)
+bnames2 <- gsub("MP__06P", "MP06", bnames2)
+bnames2 <- gsub("MP__24P", "MP24", bnames2)
+bnames2 <- gsub("_withCblm|__whole", "", bnames2)
+bnames2 <- gsub("HCP__", "", bnames2)
+qB <- q
+```
+
+```{r}
+bnames <- c(
+  "9P_DVARSdual", "9P_FD___og_nfc_l4", "9P_Lev___ICA", "9P_Base",
+  "CC2MP6_DVARSdual", "CC2MP6_FD___og_nfc_l4___", "CC2MP6_Lev___ICA", "CC2MP6_Base"
+)
+q <- lapply(bnames, load_a_result, "meanFCz")
+q <- do.call(cbind, do.call(cbind, lapply(q, function(x){x$meanFCz})))
+q <- q[,colnames(q) %in% c(
+  "9P_DVARSdual_1185", "FD___og_nfc_l4___0.2", "Lev___ICA_kurt___3", "9P_Base_1185",
+  "CC2MP6_DVARSdual_1185", "CC2MP6_Base_1185"
+)]
+bnames2 <- bnames <- c("9P_DVARS", "9P_modFD", "9P_pscrub", "9P_base", "CC2MP6_DVARS", "CC2MP6_modFD", "CC2MP6_pscrub", "CC2MP6_base")
+qB <- q
+colnames(qB) <- bnames2
+```
+
+```{r}
+
+#pdf(plt_fmt("FC_strength_grid.pdf"))
+# nnmean <- vector("list", length=length(toShow))
+# names(nnmean) <- vapply(toShow, `[[`, '', 3)
+nnmean <- vector("list", length=length(bnames2))
+names(nnmean) <- bnames2
+for (ii in seq(length(nnmean))) {
+  #q <- load_a_result(toShow[[ii]][1], "meanFC")
+  #q <- q$meanFC[[1]][,toShow[[ii]][2]]
+  q <- qB[,bnames[ii]]
+  nnmean[[ii]] <- list(on=c(), off=c())
+
+  # Get cor mat
+  mat <- cor_mat(q, names=Labs$label, newOrder=order(Labs$idx2))[,rev(seq(419))]
+  
+  # Take network-network means in upper tri
+  for (jj in seq(nrow(gg_pdv)+1)) {
+    for (kk in seq(nrow(gg_pdv)+1)) {
+      z <- mat[
+        seq(pdv[jj], pdv[jj+1]-1), 
+        seq(pdv[kk], pdv[kk+1]-1)
+      ]
+      z <- z[upper.tri(z)]
+      if (jj==kk) {
+        nnmean[[ii]]$on <- c(nnmean[[ii]]$on, z)
+      } else {
+        nnmean[[ii]]$off <- c(nnmean[[ii]]$off, z)
+      }
+    }
+  }
+}
+
+z <- rbind(
+  round(vapply(nnmean, function(x){t.test(x$on, x$off)$statistic}, 0), 5),
+  round(vapply(nnmean, function(x){mean(x$on)-mean(x$off)}, 0), 5),
+  round(vapply(nnmean, function(x){median(x$on)-median(x$off)}, 0), 5)
+)
+rownames(z) <- c("t.stat", "meanDiff", "medDiff")
+z <- as.data.frame(t(z))
+#dev.off()
+```
+
+##### Barplot
+
+```{r}
+z$name <- factor(rownames(z), levels=rev(rownames(z)), labels=rev(gsub("_DCT4", "", rownames(z))))
+ggplot(z, aes(y=name, x=t.stat)) + geom_bar(stat="identity") + theme_cowplot()
+```
+
+##### Ridgeplots
+
+```{r}
+nn <- nnmean
+for (ii in seq(length(nn))) {
+  nn[[ii]] <- data.frame(
+    name = names(nn)[ii],
+    v = do.call(c, nn[[ii]]) - median(nn[[ii]]$off),
+    mdiff = median(nn[[ii]]$on) - median(nn[[ii]]$off),
+    typeFC = c(rep("on", length(nn[[ii]]$on)), rep("off", length(nn[[ii]]$off)))
+  )
+}
+nn <- do.call(rbind, nn)
+nn$name <- factor(nn$name, levels=rev(bnames2), labels=gsub("_DCT4", "", rev(bnames2)))
+
+z <- unique(nn[c("name", "mdiff")])
+z$mdc <- as.character(round(z$mdiff, 3))
+z$v <- .9
+
+pdf(plt_fmt("FC_strength_ridge.pdf"), width=4.5, height=6)
+
+ggplot(nn, aes(y=name, x=v, fill=typeFC)) + 
+  geom_density_ridges(rel_min_height=.01, scale=1.55, quantile_lines=2, quantiles=2) + 
+  theme_cowplot() + 
+  geom_text(aes(y=name, x=v, label=mdc), data=z, inherit.aes = FALSE, hjust="left") +
+  scale_fill_manual(values=c("#fc8d62", "#91d7eb")) +
+  theme(legend.position="bottom") + xlab("Adjusted mean z-FC across subjects") + ylab("")
 
 dev.off()
 ```
@@ -948,7 +1076,7 @@ dev.off()
 rm(list=setdiff(ls(), varKeep))
 ```
 
-### Num scrubbed vs ICC and MAC
+### Num scrubbed vs ICC & MAC
 
 ```{r}
 mnames <- c(
@@ -983,20 +1111,14 @@ q$method <- factor(
 baseICC <- mean(load_a_result("CC2MP6_Base")$ICC31[[1]])
 q$v <- q$v - baseICC
 
-q <- subset(q, method!="FD" | cut >=.3)
-q <- subset(q, method!="modFD" | cut >=.2)
-q <- subset(q, method!="ICA" | cut >=3)
-q <- subset(q, method!="FusedPCA" | cut >=3)
-q <- subset(q, method!="PCA" | cut >=3)
-
 q <- subset(q, v2 < hcp_T*.48) # .06
 q <- tidyr::pivot_longer(q, c("v", "v3"))
 q$name <- factor(q$name, levels=c("v", "v3"), labels=c("ICC(3,1)", "MAC"))
-logjust <- 16# 100
+logjust <- 100
 
 q$big <- FALSE
-q$big[q$method=="FD" & q$cut==.3] <- TRUE
-q$big[q$method=="modFD" & q$cut==.2] <- TRUE
+q$big[q$method=="FD" & q$cut==.2] <- TRUE
+q$big[q$method=="modFD" & q$cut==.3] <- TRUE
 q$big[q$method=="ICA" & q$cut==3] <- TRUE
 q$big[q$method=="FusedPCA" & q$cut==3] <- TRUE
 q$big[q$method=="PCA" & q$cut==3] <- TRUE
@@ -1004,7 +1126,7 @@ q$big[q$method=="DVARS"] <- TRUE
 ```
 
 ```{r}
-pdf(plt_fmt(paste0("NumScrubbed_vs_ICC_MAC.pdf")), width=5, height=10)
+pdf(plt_fmt(paste0("NumScrubbed_vs_ICC_MAC.pdf")), width=5, height=15)
 
 p1 <- ggplot(q, aes(x=v2 + logjust, y=value, color=method)) + 
   scale_size_manual(values=c(1, 2.8)) +
@@ -1017,13 +1139,12 @@ p1 <- ggplot(q, aes(x=v2 + logjust, y=value, color=method)) +
   xlab("% frames removed") + ylab("Mean ICC") +
   scale_color_manual(values=color_m[levels(q$method)]) +
   scale_fill_manual(values=color_m[levels(q$method)]) +
-  coord_cartesian(xlim=logjust + 1185* c(0, .2)) +
   scale_x_continuous(
-    breaks=logjust + 1185 * c(0, .01, .02, .05, .1, .2), 
-    labels=paste0(" ", c(0, 1, 2, 5, 10 , 20), "%"),
-    trans="log1p"
-  ) + 
-  theme_bw() + 
+    limits=logjust + 1185* c(0, .5),
+    breaks=logjust + 1185 * c(0, .01, .02, .05, .1, .2, .5), 
+    labels=paste0(" ", c(0, 1, 2, 5, 10 , 20, 50), "%"),
+    trans="pseudo_log"
+  ) + theme_bw() + 
   labs(color="Scrubbing method") +
   cowplot::theme_cowplot() +
   theme(legend.position = "bottom") +
@@ -1032,91 +1153,10 @@ p1 <- ggplot(q, aes(x=v2 + logjust, y=value, color=method)) +
 p1 + geom_line(stat="smooth", method = "lm", formula = y ~ x + I(x^2), alpha=.3, se=FALSE) +
   geom_smooth(method = "lm", formula = y ~ x + I(x^2), aes(fill=method), size=.8, alpha=.1) +
   geom_point(aes(size=big))
-
-p1 + geom_line(size=1, alpha=.5) + 
-  geom_point(aes(size=big))
+p1 + geom_line(size=1, alpha=.5) + geom_point(aes(size=big))
 
 dev.off()
-#rm(list=setdiff(ls(), varKeep))
-```
-
-```{r}
-mnames <- c(
-  "FD___og___", "FD___og_nfc_l4___",
-  "Lev___ICA", "Lev___fusedPCA", "Lev___PCA",
-  "DVARSdual"
-)
-
-q <- lapply(paste0("CC2MP6_", mnames), load_a_result)
-q <- do.call(cbind, lapply(q, function(x){x$ICC31[[1]]}))
-q2 <- lapply(paste0("CC2MP6_", mnames), load_a_result, "nScrub")
-q3 <- lapply(paste0("CC2MP6_", mnames), load_a_result, "mac")
-# MAC results were based on script that skipped non-kurt results
-q3[seq(3,5)] <- lapply(q3[seq(3,5)], function(x){
-  x$mac[[1]] <- c(setNames(rep(NA, 8), "missing"), x$mac[[1]])
-  x
-})
-q <- data.frame(
-  v = colMeans(q),
-  v2 = do.call(c, lapply(q2, function(x){colMeans(x$nScrub[[1]], dims=2)})),
-  v3 = do.call(c, lapply(q3, function(x){x$mac[[1]]})),
-  mname = colnames(q)
-)
-q$cut <- as.numeric(gsub(".*_", "", q$mname))
-q <- subset(q, !grepl("PCA__|ICA__|fusedPCA__", q$mname))
-q$method <- factor(
-  gsub("___.*", "", gsub("Lev___|FD___", "", q$mname)),
-  c("og", "og_nfc_l4", "ICA_kurt", "fusedPCA_kurt", "PCA_kurt", "CC2MP6_DVARSdual_1185"),
-  c("FD", "modFD", "ICA", "FusedPCA", "PCA", "DVARS")
-)
-
-baseICC <- mean(load_a_result("CC2MP6_Base")$ICC31[[1]])
-q$v <- q$v - baseICC
-
-q <- subset(q, v2 < hcp_T * .1)
-# q <- subset(q, v2 < hcp_T*.48) # .06
-
-q <- tidyr::pivot_longer(q, c("v", "v3"))
-q$name <- factor(q$name, levels=c("v", "v3"), labels=c("ICC(3,1)", "MAC"))
-logjust <- 16# 100
-
-q$big <- q$mname == "CC2MP6_DVARSdual_1185"
-
-pdf(plt_fmt(paste0("NumScrubbed_vs_ICC_MAC_v2.pdf")), width=6.5, height=10)
-
-p1 <- ggplot(q, aes(x=v2 + logjust, y=value, color=method)) + 
-  scale_size_manual(values=c(2.0, 3.5)) +
-  geom_vline(
-    xintercept=logjust+c(13.886905, 27.877976), alpha=.5, size=1.5,
-    color=color_m[["lightGray"]]) +
-  geom_hline(yintercept=0, linetype="dashed") +
-  #coord_cartesian(ylim=c(-.002, .004)) +
-  #geom_point(size=2) + 
-  xlab("% frames removed") + ylab("Mean ICC") +
-  scale_color_manual(values=color_m[levels(q$method)]) +
-  scale_fill_manual(values=color_m[levels(q$method)]) +
-  coord_cartesian(xlim=logjust + 1185* c(0, .1)) +
-  scale_x_continuous(
-    breaks=logjust + 1185 * c(0, .01, .02, .05, .1), 
-    labels=paste0(" ", c(0, 1, 2, 5, 10), "%"),
-    trans="log1p"
-  ) + 
-  scale_y_continuous(labels = function(q) format(q, scientific = TRUE)) +
-  theme_bw() + 
-  labs(color="Scrubbing method") +
-  cowplot::theme_cowplot() +
-  theme(legend.position = "bottom") +
-  facet_grid(name~., scales="free_y")
-
-p1 + geom_line(stat="smooth", method = "lm", formula = y ~ x + I(x^2), alpha=.3, se=FALSE) +
-  geom_smooth(method = "lm", formula = y ~ x + I(x^2), aes(fill=method), size=.8, alpha=.1) +
-  geom_point(aes(size=big))
-
-p1 + geom_line(size=1, alpha=.5) + 
-  geom_point(aes(size=big))
-
-dev.off()
-#rm(list=setdiff(ls(), varKeep))
+rm(list=setdiff(ls(), varKeep))
 ```
 
 # G. Overlap
@@ -1172,25 +1212,14 @@ rm(list=setdiff(ls(), varKeep))
 
 ```{r}
 plt_idx <- "H"
-
-meanFD <- readRDS(file.path(dir_data_misc, "HCP_meanFD.rds"))
-s_quant <- c(.05, .25, .45, .65, .9)
-snames <- meanFD[round(s_quant*nrow(meanFD)),]
-snames$name <- paste0(
-  snames$subject, "_v", 
-  ((!snames$test) * 2) + snames$visit,
-  "_", snames$acquisition
-)
-snames$quant <- s_quant
-
-color_m2 <- c(modFD="#dd8080", ICA="#80affa")
 ```
 
 ```{r}
-pdf(plt_fmt("ScrubMeas_Timecourse_just2.pdf"), width=85, height=4.5)
+pdf(plt_fmt("ScrubMeas_Timecourse.pdf"), width=80, height=4.5)
 
-z <- setNames(as.list(snames$name), snames$name)
-for (sname_ss in snames$name) {
+snames <- c("250427_v2_RL", "111312_v2_LR", "917255_v2_RL", "250427_v2_LR", "125525_v1_LR")
+z <- setNames(as.list(snames), snames)
+for (sname_ss in snames) {
   x <- list(
     LEV = readRDS(file.path(dir_scrubMeas, paste0("LEV/CC2MP6/LEV_",sname_ss,".rds"))),
     FD = readRDS(file.path(dir_scrubMeas, paste0("FD/FD_",sname_ss,".rds")))[c("og", "og_nfc_l4")],
@@ -1199,13 +1228,12 @@ for (sname_ss in snames$name) {
   y <- as.data.frame(cbind(
     idx=seq(1185),
     ICA = x$LEV$measure$ICA_kurt / median(x$LEV$measure$ICA_kurt) / 3,
-    #FD = x$FD$og / .3,
-    modFD = x$FD$og_nfc_l4 / .2#,
-    #DVARS = x$DVARS$dv$ZD / qnorm(1 - .05 / 1185)
+    FD = x$FD$og / .3,
+    modFD = x$FD$og_nfc_l4 / .2,
+    DVARS = x$DVARS$dv$ZD / qnorm(1 - .05 / 1185)
   ))
-  z[[sname_ss]] <- tidyr::pivot_longer(y, seq(2,3))
-  z[[sname_ss]]$name <- factor(z[[sname_ss]]$name, levels=c("FD", "modFD", "DVARS", "ICA"))
-  
+  z[[sname_ss]] <- tidyr::pivot_longer(y, seq(2,5))
+  z[[sname_ss]]$name <- factor(z[[sname_ss]]$name, levels=c("FD", "modFD", "ICA", "DVARS"))
   q <- ggplot(z[[sname_ss]], aes(x=idx, y=value, color=name)) + geom_line() + 
     geom_line(data=subset(z[[sname_ss]], name=="ICA")) +
     geom_hline(yintercept=0) +
@@ -1214,7 +1242,7 @@ for (sname_ss in snames$name) {
     theme_cowplot() +
     theme(legend.position="none") +
     coord_cartesian(xlim=c(0, 1185), ylim=c(-.5, 4), expand=FALSE) +
-    scale_x_continuous(breaks=seq(1185) * 1, labels=ifelse(seq(1185) %% 10 == 0, seq(1185), "")) +
+    scale_x_continuous(breaks=seq(118) * 10) +
     xlab("Timepoint") + ylab("Value/Threshold") + ggtitle(sname_ss)
   print(q)
 }
@@ -1222,131 +1250,214 @@ dev.off()
 ```
 
 ```{r}
-snames$sel_less <- c(
-  162, # similar, but lev selects less
-  455, # similar, but lev selects less # 577? lev, but not motion
-  120, # similar, but lev selects less 
-  542, # similar, but lev selects less 
-  1059  # similar, but lev selects less 
-)
-snames$sel_lag <- c(
-  911, 942, 282, 305, 528
-)
+lims <- setNames(list(
+  c(386, 584),
+  c(727, 795, 892),
+  c(102, 751),
+  c(529, 799),
+  c(672, 868, 918, 1113)
+), snames)
 
-for (what in c("less", "lag")) {
-  pdf(plt_fmt(paste0("ScrubMeas_Timecourse_Selection_", what, ".pdf")), width=3, height=12)
-  q <- vector("list", nrow(snames))
-  for (ii in seq(nrow(snames))) {
-    sname_ss <- snames$name[ii]
-    # lims_ss <- lims[[sname_ss]]
-    # if (is.null(lims_ss)) { next }
-    # lims_ii <- lims_ss[ii]
-    # hilite_ii <- hilite[[sname_ss]][[ii]]
-    # ok_ii <- ok[[sname_ss]][ii]
-    # 
-    # hilite_df <- data.frame(x=hilite_ii+lims_ii, y=2, width=1, height=8)
-    # ok_df <- data.frame(x=ok_ii+lims_ii, y=2, width=1, height=8)
+pdf(plt_fmt("ScrubMeas_Timecourse_Selection.pdf"), width=6, height=4.5)
+for (sname_ss in snames) {
+  lims_ss <- lims[[sname_ss]]
+  for (ii in seq(length(lims_ss))) {
     
-    z[[sname_ss]] <- subset(z[[sname_ss]], name %in% c("modFD", "ICA"))
-    
-    df_flag_modFD <- data.frame(
-      x = subset(z[[sname_ss]], value > 1 & name=="modFD")$idx,
-      y=2, width=1, height=8
-    )
-    df_flag_ICA <- data.frame(
-      x = subset(z[[sname_ss]], value > 1 & name=="ICA")$idx,
-      y=2, width=1, height=8
-    )
-    df_flag_both <- rbind(df_flag_ICA, df_flag_modFD)[duplicated(rbind(df_flag_ICA, df_flag_modFD)),]
-    
-    z[[sname_ss]] <- subset(z[[sname_ss]], name %in% c("modFD", "ICA"))
-    #z[[sname_ss]]$p <- z[[sname_ss]]$idx %in% (c(ok_ii, hilite_ii)+lims_ii)
-    
-    q[[ii]] <- ggplot(z[[sname_ss]], aes(x=idx, y=value, color=name)) + 
-      geom_tile(
-        aes(x=x,y=y, width=width,height=height), data=df_flag_ICA, 
-        fill=color_m2["ICA"], color="#ffffff00", alpha=.45
-      ) +
-      geom_tile(
-        aes(x=x,y=y, width=width,height=height), data=df_flag_modFD, 
-        fill=color_m2["modFD"], color="#ffffff00", alpha=.45
-      ) +
-      geom_tile(
-        aes(x=x,y=y, width=width,height=height), data=df_flag_both, 
-        fill="#000000", color="#ffffff00", alpha=.12
-      ) +
-      geom_line(size=.7) + 
-      #geom_point(data=subset(z[[sname_ss]], p), size=2) +
+    q <- ggplot(z[[sname_ss]], aes(x=idx - lims[[sname_ss]][ii], y=value, color=name)) + geom_line() + 
+      geom_line(data=subset(z[[sname_ss]], name=="ICA")) +
       geom_hline(yintercept=0) +
-      #geom_vline(xintercept=0, linetype="dotted") +
+      geom_vline(xintercept=0, linetype="dotted") +
       geom_hline(yintercept=1, linetype="dashed") +
       scale_color_manual(values=color_m) +
       theme_cowplot() +
       theme(legend.position="none") +
-      coord_cartesian(xlim=c(-5,10)+snames[[paste0("sel_", what)]][ii], ylim=c(0, 6), expand=FALSE) +
-      scale_x_continuous(breaks=seq(1185) * 1, labels=ifelse(seq(1185) %% 5 == 0, seq(1185), "")) +
-      xlab("Timepoint") + ylab("Value/Threshold") + ggtitle(sname_ss)
+      coord_cartesian(xlim=c(-10, 20), ylim=c(-.5, 4), expand=FALSE) +
+      scale_x_continuous(breaks=seq(118) * 10) +
+      xlab("Volumes after first motion peak?") + ylab("Value/Threshold") + ggtitle(sname_ss)
+    print(q)
   }
-  print(cowplot::plot_grid(plotlist=q, ncol=1, align="hv"))
-  dev.off()
+}
+dev.off()
+```
+
+### New
+
+```{r}
+snames <- c("250427_v2_RL", "111312_v2_LR", "250427_v2_LR", "125525_v1_LR")
+lims <- setNames(list(
+  c(386, 584),
+  c(727, 795, 892),
+  c(102, 751),
+  c(529, 799),
+  c(672, 868, 918, 1113)
+), snames)
+```
+
+```{r}
+make_BOLD_plot <- function(cii, cii_name, idx_main ,idx_sub, idx_sub_names, idx_sub_order){
+  q <- read_cifti("data/rfMRI_empty.dtseries.nii", brainstructures="all")
+  q <- newdata_xifti(q, t(cii)[,idx_main+idx_sub])
+  q <- convert_xifti(q, "dscalar")
+  q$meta$cifti$names <- idx_sub_names
+  q <- select_xifti(q, idx_sub_order)
+  plot(
+    q, idx=seq(length(idx_sub)), 
+    fname=file.path(dir_analysis, "selectBOLD", cii_name), 
+    zlim=c(-500, 500)
+  )
+  plot(
+    q, idx=seq(length(idx_sub)), 
+    fname=file.path(dir_analysis, "selectBOLD", paste0(cii_name, "_comp")), 
+    together="idx", together_title=cii_name,
+    zlim=c(-500, 500)
+  )
 }
 ```
 
 ```{r}
-xii0 <- read_cifti(file.path(dir_data_misc, "rfMRI_empty.dtseries.nii"), brainstructures="all")
-
-for (sname_ss in snames) {
-  lims_ss <- lims[[sname_ss]]
-  if (is.null(lims_ss)) { next }
-  z <- readRDS(file.path(dir_analysis, "ciiDN", paste0(sname_ss, "_ciiDN_CC2MP6.rds"))) + readRDS(file.path(dir_analysis, "ciiDN", paste0(sname_ss, "_ciiDN_CC2MP6_int.rds"))) 
-  for (ii in seq(length(lims_ss))) {
-    lims_ii <- lims_ss[ii]
-    hilite_ii <- hilite[[sname_ss]][[ii]] + lims_ii
-    ok_ii <- ok[[sname_ss]][ii] + lims_ii
-    for (jj in seq(length(hilite_ii))) {
-      fname_jj <- plt_fmt(paste0(sname_ss, "_t", lims_ss[ii], "_j", jj))
-      plot(
-        newdata_xifti(xii0, z), zlim=c(5000, 15000), idx=hilite_ii[jj],
-        title=paste0("T=", hilite_ii[jj]), text_color="#cc6666", fname=fname_jj
-      )
-    }
-    fname_c <- plt_fmt(paste0(sname_ss, "_t", lims_ss[ii], "_c"))
-    plot(
-      newdata_xifti(xii0, z), zlim=c(5000, 15000), idx=ok_ii,
-      title=paste0("T=", ok_ii), text_color="#669999", fname=fname_c
-    )
-  }
-}
+make_BOLD_plot(
+  cii = readRDS(file.path(
+    "~/Desktop", "cleanedcii_few_copy/250427_v2_RL_CC2MP6.rds"
+  )),
+  cii_name = "250427_v2_RL",
+  idx_main = 386, idx_sub=c(-8,17,0,7,8,9),
+  idx_names = id_tax_maian <- c("-8 (none)", "17 (none)", "0 (all)", "7 (notFD)", "8 (notFD)","c (notFD)"),
+  idx_sub_order=c(1,3,5,2,4,6)
+)
 ```
 
 ```{r}
-xii0 <- read_cifti(file.path(dir_data_misc, "rfMRI_empty.dtseries.nii"), brainstructures="all")
-
-for (sname_ss in snames) {
-  lims_ss <- lims[[sname_ss]]
-  if (is.null(lims_ss)) { next }
-  z <- readRDS(file.path(dir_analysis, "ciiDN", paste0(sname_ss, "_ciiDN_CC2MP6.rds"))) + mean(readRDS(file.path(dir_analysis, "ciiDN", paste0(sname_ss, "_ciiDN_CC2MP6_int.rds"))))
-  for (ii in seq(length(lims_ss))) {
-    lims_ii <- lims_ss[ii]
-    hilite_ii <- hilite[[sname_ss]][[ii]] + lims_ii
-    ok_ii <- ok[[sname_ss]][ii] + lims_ii
-    for (jj in seq(length(hilite_ii))) {
-      fname_jj <- plt_fmt(paste0(sname_ss, "_gmean_t", lims_ss[ii], "_j", jj))
-      plot(
-        newdata_xifti(xii0, z), zlim=c(9500, 11500), idx=hilite_ii[jj],
-        title=paste0("T=", hilite_ii[jj]), text_color="#cc6666", fname=fname_jj
-      )
-    }
-    fname_c <- plt_fmt(paste0(sname_ss, "_gmean_t", lims_ss[ii], "_c"))
-    plot(
-      newdata_xifti(xii0, z), zlim=c(9500, 11500), idx=ok_ii,
-      title=paste0("T=", ok_ii), text_color="#669999", fname=fname_c
-    )
-  }
-}
+z <- readRDS(file.path(
+  "~/Desktop", "cleanedcii_few_copy/111312_v2_LR_CC2MP6.rds"
+))
+q <- read_cifti("data/rfMRI_empty.dtseries.nii", brainstructures="all")
+q <- newdata_xifti(q, t(z)[,727+c(-8, 18, 4,5,6,7)])
+q <- convert_xifti(q, "dscalar")
+q$meta$cifti$names <- c(
+  "-8 (none)",
+  "18 (none)",
+  "4 (all)",
+  "5 (all)",
+  "6 (modFD only)",
+  "7 (modFD only)"
+)
+q <- select_xifti(q, c(1,3,5,2,4,6))
+plot(
+  q, idx=seq(6), 
+  fname=file.path(dir_analysis, "selectBOLD", "111312_v2_LR"), 
+  zlim=c(-500, 500)
+)
+plot(
+  q, idx=seq(6), 
+  fname=file.path(dir_analysis, "selectBOLD", "111312_v2_LR_comp"), 
+  together="idx", together_title="111312_v2_LR",
+  zlim=c(-500, 500)
+)
 ```
 
-# K. Exclusion rate
+```{r}
+z <- readRDS(file.path(
+  "~/Desktop", "cleanedcii_few_copy/125525_v1_LR_CC2MP6.rds"
+))
+# 672, 868, 918, 1113
+
+q <- read_cifti("data/rfMRI_empty.dtseries.nii", brainstructures="all")
+q <- newdata_xifti(q, t(z)[,672+c(-8, 0, 1, 10)])
+q <- convert_xifti(q, "dscalar")
+q$meta$cifti$names <- c(
+  "-8 (none)",
+  "0 (all)",
+  "1 (FD & modFD only)",
+  "10 (none)"
+)
+q <- select_xifti(q, c(1,3,4,2))
+plot(
+  q, idx=seq(4), 
+  fname=file.path(dir_analysis, "selectBOLD", "125525_v1_LR_firstSel"), 
+  zlim=c(-500, 500)
+)
+plot(
+  q, idx=seq(4), 
+  fname=file.path(dir_analysis, "selectBOLD", "125525_v1_LR_comp_firstSel"), 
+  together="idx", together_title="125525_v1_LR  #1",
+  zlim=c(-500, 500)
+)
+```
+
+```{r}
+q <- read_cifti("data/rfMRI_empty.dtseries.nii", brainstructures="all")
+q <- newdata_xifti(q, t(z)[,868+c(-5, -1, 0, 15)])
+q <- convert_xifti(q, "dscalar")
+q$meta$cifti$names <- c(
+  "-5 (none)",
+  "-1 (projection only)",
+  "0 (FD only)",
+  "15 (none)"
+)
+q <- select_xifti(q, c(1,3,4,2))
+plot(
+  q, idx=seq(4), 
+  fname=file.path(dir_analysis, "selectBOLD", "125525_v1_LR_secondSel"), 
+  zlim=c(-500, 500)
+)
+plot(
+  q, idx=seq(4), 
+  fname=file.path(dir_analysis, "selectBOLD", "125525_v1_LR_comp_secondSel"), 
+  together="idx", together_title="125525_v1_LR  #2",
+  zlim=c(-500, 500)
+)
+```
+```{r}
+q <- read_cifti("data/rfMRI_empty.dtseries.nii", brainstructures="all")
+q <- newdata_xifti(q, t(z)[,918+c(-10, 11, 12, 20)])
+q <- convert_xifti(q, "dscalar")
+q$meta$cifti$names <- c(
+  "-10 (none)",
+  "11 (all)",
+  "12 (not FD)",
+  "20 (none)"
+)
+q <- select_xifti(q, c(1,3,4,2))
+plot(
+  q, idx=seq(4), 
+  fname=file.path(dir_analysis, "selectBOLD", "125525_v1_LR_thirdSel"), 
+  zlim=c(-500, 500)
+)
+plot(
+  q, idx=seq(4), 
+  fname=file.path(dir_analysis, "selectBOLD", "125525_v1_LR_comp_thirdSel"), 
+  together="idx", together_title="125525_v1_LR  #3",
+  zlim=c(-500, 500)
+)
+```
+
+```{r}
+q <- read_cifti("data/rfMRI_empty.dtseries.nii", brainstructures="all")
+q <- newdata_xifti(q, t(z)[,1113+c(-2, -1, 0, 10, 11, 12)])
+q <- convert_xifti(q, "dscalar")
+q$meta$cifti$names <- c(
+  "-2 (FD)",
+  "-1 (Projection)",
+  "0 (modFD)",
+  "10 (none)",
+  "11 (none)",
+  "12 (none)"
+
+)
+plot(
+  q, idx=seq(6), 
+  fname=file.path(dir_analysis, "selectBOLD", "125525_v1_LR_fourthSel"), 
+  zlim=c(-500, 500)
+)
+plot(
+  q, idx=seq(6), 
+  fname=file.path(dir_analysis, "selectBOLD", "125525_v1_LR_comp_fourthSel"), 
+  together="idx", together_title="125525_v1_LR  #4",
+  zlim=c(-500, 500)
+)
+```
+
+# I. Exclusion rate
 
 Num. sessions w/ > 10 min.
 
@@ -1442,6 +1553,104 @@ cowplot::plot_grid(plotlist=p)
 dev.off()
 ```
 
+# J. Scrubbing FC effect
+
+### mean FC
+
+```{r}
+plt_idx <- "J"
+
+mnames <- c(
+  "Base",
+  "FD___og___", "FD___og_nfc_l4___",
+  "Lev___ICA", "Lev___fusedPCA", "Lev___PCA",
+  "DVARSdual"
+)
+mnames2 <- c(
+  "FD___og___0.5", "FD___og_nfc_l4___0.5", 
+  "Lev___ICA_kurt___5", "Lev___fusedPCA_kurt___5", "Lev___PCA_kurt___5",
+  "CC2MP6_DVARSdual_1185"
+)
+mnames3 <- c("FD", "modFD", "ICA", "FusedPCA", "PCA", "DVARS")
+
+q <- lapply(paste0("CC2MP6_", mnames), load_a_result)
+
+qB <- load_a_result("CC2MP6_Base", "meanFC")$meanFC[[1]][,1]
+
+pdf(plt_fmt("scrubbing_FC_strength_grid.pdf"))
+for (ii in seq(length(mnames2))) {
+  q <- load_a_result(paste0("CC2MP6_", mnames[[ii+1]]), "meanFC")
+  q <- q$meanFC[[1]][,mnames2[[ii]]] - qB
+  q <- ggcorrplot2(
+    q, coloring$diverging7, divColor="white",
+    paste("mean FC:", mnames3[[ii]]), 
+    "mean FC", lim=lim_cFC
+  )
+  print(q)
+} 
+
+dev.off()
+```
+
+### selected subjects
+
+```{r}
+plt_idx <- "J"
+
+mnames <- c(
+  "Base",
+  "FD___og___", "FD___og_nfc_l4___",
+  "Lev___ICA", #"Lev___fusedPCA", "Lev___PCA",
+  "DVARSdual"
+)
+mnames2 <- c(
+  "Base",
+  "FD___og___0.3", "FD___og_nfc_l4___0.2", 
+  "Lev___ICA_kurt___3", #"Lev___fusedPCA_kurt___5", "Lev___PCA_kurt___5",
+  "DVARSdual"
+)
+mnames3 <- c("Base", "FD", "modFD", "ICA", "DVARSdual")
+
+subs <- c("250427_v2_LR", "177746_v2_RL", "111312_v2_LR")
+
+pdf(plt_fmt("FC_strength_grid_selSubjects.pdf"))
+
+for (ii in seq(length(subs))) {
+  q <- readRDS(file.path(
+    dir_FC, "CC2MP6", paste0(subs[ii], ".rds")
+  ))$FC[mnames2]
+  q <- lapply(q, function(x){x$T_1185})
+  
+  for (jj in seq(length(mnames))) {
+    z <- ggcorrplot2(
+      q[[jj]], coloring$diverging7, divColor="black",
+      paste("FC:", subs[ii], mnames3[jj]), 
+      "FC", lim=lim_FC
+    )
+    print(z)
+  }
+} 
+dev.off()
+
+pdf(plt_fmt("FC_strength_grid_selSubjects_diff.pdf"))
+for (ii in seq(length(subs))) {
+  q <- readRDS(file.path(
+    dir_FC, "CC2MP6", paste0(subs[ii], ".rds")
+  ))$FC[mnames2]
+  q <- lapply(q, function(x){x$T_1185})
+  
+  for (jj in seq(2, length(mnames))) {
+    z <- ggcorrplot2(
+      q[[jj]]-q$Base, coloring$diverging7, divColor="black",
+      paste("FC change:", subs[ii], mnames3[jj]), 
+      "FC", lim=.05
+    )
+    print(z)
+  }
+} 
+dev.off()
+```
+
 # L. Scrubbing ICC effect
 
 ```{r}
@@ -1460,8 +1669,8 @@ mnames <- c(
   "DVARSdual"
 )
 mnames2 <- c(
-  "FD___og___0.3", "FD___og_nfc_l4___0.2", 
-  "Lev___ICA_kurt___3", "Lev___fusedPCA_kurt___3", "Lev___PCA_kurt___3",
+  "FD___og___0.5", "FD___og_nfc_l4___0.5", 
+  "Lev___ICA_kurt___5", "Lev___fusedPCA_kurt___5", "Lev___PCA_kurt___5",
   "CC2MP6_DVARSdual_1185"
 )
 mnames3 <- c("FD", "modFD", "ICA", "FusedPCA", "PCA", "DVARS")
@@ -1499,7 +1708,7 @@ p1 <- ggplot(subset(q, group %in% levels(group)[seq(10)]), aes(x=group, y=v)) +
   geom_bar(aes(fill=mname), stat="identity", position=position_dodge2(padding=0, preserve="single"), width=.75) +
   geom_hline(yintercept=0, linetype="dashed") +
   scale_fill_manual(values=as.character(color_m[mnames3])) +
-  scale_y_continuous(limits=c(-.03, .05), expand=c(0, 0)) +
+  scale_y_continuous(limits=c(-.01, .03), expand=c(0, 0)) +
   cowplot::theme_cowplot() + theme(legend.position="none")
 
 p1a <- p1 + geom_col(
@@ -1511,14 +1720,14 @@ p2 <- ggplot(subset(q, group %in% levels(group)[seq(11,15)]), aes(x=group, y=v))
   geom_bar(aes(fill=mname), stat="identity", position=position_dodge2(padding=0, preserve="single"), width=.75) +
   geom_hline(yintercept=0, linetype="dashed") +
   scale_fill_manual(values=as.character(color_m[mnames3])) +
-  scale_y_continuous(limits=c(-.03, .05), expand=c(0, 0)) +
+  scale_y_continuous(limits=c(-.01, .03), expand=c(0, 0)) +
   cowplot::theme_cowplot() + theme(legend.position="none")
 
 p3 <- ggplot(subset(q, group %in% levels(group)[seq(16,18)]), aes(x=group, y=v)) + 
   geom_bar(aes(fill=mname), stat="identity", position=position_dodge2(padding=0, preserve="single"), width=.75) +
   geom_hline(yintercept=0, linetype="dashed") +
   scale_fill_manual(values=as.character(color_m[mnames3])) +
-  scale_y_continuous(limits=c(-.03, .05), expand=c(0, 0)) +
+  scale_y_continuous(limits=c(-.01, .03), expand=c(0, 0)) +
   cowplot::theme_cowplot() + theme(legend.position="none")
 
 pdf(plt_fmt(paste0("Scrubbing_Effect_Reliability_Breakdown.pdf")), height=5, width=11)
@@ -1532,7 +1741,7 @@ p1 <- ggplot(subset(q, (!grepl("PCA", q$mname)) & group %in% levels(group)[seq(1
   geom_bar(aes(fill=mname), stat="identity", position=position_dodge2(padding=0, preserve="single"), width=.75) +
   geom_hline(yintercept=0, linetype="dashed") +
   scale_fill_manual(values=as.character(color_m[mnames3[!grepl("PCA", mnames3)]])) +
-  scale_y_continuous(limits=c(-.02, .025), expand=c(0, 0)) +
+  scale_y_continuous(limits=c(-.01, .03), expand=c(0, 0)) +
   cowplot::theme_cowplot() + theme(legend.position="none")
 
 p1a <- p1 #+ geom_col(
@@ -1544,14 +1753,14 @@ p2 <- ggplot(subset(q, (!grepl("PCA", q$mname)) & group %in% levels(group)[seq(1
   geom_bar(aes(fill=mname), stat="identity", position=position_dodge2(padding=0, preserve="single"), width=.75) +
   geom_hline(yintercept=0, linetype="dashed") +
   scale_fill_manual(values=as.character(color_m[mnames3[!grepl("PCA", mnames3)]])) +
-  scale_y_continuous(limits=c(-.02, .025), expand=c(0, 0)) +
+  scale_y_continuous(limits=c(-.01, .03), expand=c(0, 0)) +
   cowplot::theme_cowplot() + theme(legend.position="none")
 
 p3 <- ggplot(subset(q, (!grepl("PCA", q$mname)) & group %in% levels(group)[seq(16,18)]), aes(x=group, y=v)) + 
   geom_bar(aes(fill=mname), stat="identity", position=position_dodge2(padding=0, preserve="single"), width=.75) +
   geom_hline(yintercept=0, linetype="dashed") +
   scale_fill_manual(values=as.character(color_m[mnames3[!grepl("PCA", mnames3)]])) +
-  scale_y_continuous(limits=c(-.02, .025), expand=c(0, 0)) +
+  scale_y_continuous(limits=c(-.01, .03), expand=c(0, 0)) +
   cowplot::theme_cowplot() + theme(legend.position="none")
 
 pdf(plt_fmt(paste0("Scrubbing_Effect_Reliability_Breakdown_less.pdf")), height=5, width=11)
@@ -1600,15 +1809,9 @@ rm(list=setdiff(ls(), varKeep))
 
 ```{r}
 plt_idx <- "M"
-agg <- readRDS(file.path(dir_FCval, paste0("FC_CC2MP6.rds")))
+agg <- readRDS(file.path(dir_FCval, "../3_FCval2", paste0("FC_CC2MP6.rds")))
 agg <- sqrt(apply(agg^2, seq(3), mean))
 m <- dimnames(agg)[[3]]
-```
-
-```{r}
-aggd <- agg[,,m[m!="Base"]] - c(agg[,,"Base"])
-aggd <- apply(aggd, c(1,3), mean)
-aggd <- aggd[,m[c(seq(2,9), seq(16,19))]]
 
 myLabs <- c(
   FD___og___0.2="FD\n0.2 mm",
@@ -1619,11 +1822,68 @@ myLabs <- c(
   FD___og_nfc_l4___0.4="modFD\n0.4 mm",
   FD___og___0.5="FD\n0.5 mm",
   FD___og_nfc_l4___0.5="modFD\n0.5 mm",
-  Lev___ICA_kurt___3="ICA Proj.\n3x",
-  Lev___ICA_kurt___4="ICA Proj.\n4x",
-  Lev___ICA_kurt___5="ICA Proj.\n5x",
+  Lev___ICA_kurt___3="ICA Proj.\n3*med",
+  Lev___ICA_kurt___4="ICA Proj.\n4*med",
+  Lev___ICA_kurt___5="ICA Proj.\n5*med",
   DVARSdual="DVARS"
 )
+```
+
+### Validity exclusion analysis
+
+```{r}
+q <- readRDS(file.path(dir_FC, "CC2MP6/flag.rds"))
+q <- lapply(q, function(x) {x[names(myLabs)]} )
+q <- lapply(q, function(x) {do.call(cbind, x)})
+q <- abind::abind(q, along=3)
+q2 <- q; dim(q) <- c(dim(q)[1], dim(q)[2], 8, 42)
+q <- q[,,seq(4),] + q[,,seq(5,8),]
+dimnames(q) <- list(
+  NULL,
+  dimnames(q2)[[2]],
+  c("v1", "v2", "v3", "v4"),
+  subjects
+)
+vols_from_nT <- function(nT){
+  v0 <- ceiling((hcp_T-15)/2) - floor(nT/2)
+  seq(v0, v0+nT-1)
+}
+```
+
+```{r}
+nT1 <- 250
+q2 <- q[vols_from_nT(nT1),,,]
+q3 <- apply(q2, c(2,4), function(x){sum((2*nT1-colSums(x))*.72/60 < 5)})
+nD1 <- rowSums(q3>0)
+
+nT1 <- 417
+q2 <- q[vols_from_nT(nT1),,,]
+q3 <- apply(q2, c(2,4), function(x){sum((2*nT1-colSums(x))*.72/60 < 5)})
+nD2 <- rowSums(q3>0)
+subKeep <- which(colSums(q3[c(2,4,6,8,9,10,11,12),])==0)
+
+z <- as.data.frame(cbind(nD1, nD2))
+colnames(z) <- c("6 min.", "10 min.")
+z <- z[c(1,3,5,7,2,4,6,8,9,10,11,12),]
+rownames(z) <- c(
+  "FD, 0.2", "FD, 0.3", "FD, 0.4", "FD, 0.5",
+  "modFD, 0.2", "modFD, 0.3", "modFD, 0.4", "modFD, 0.5",
+  "ICA, 3x", "ICA, 4x", "ICA, 5x",
+  "DVARS"
+)
+```
+
+```{r}
+kableExtra::kable_styling(knitr::kable(z), 
+bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+### V
+
+```{r}
+aggd <- agg[,,m[m!="Base"]] - c(agg[,,"Base"])
+aggd <- apply(aggd, c(1,3), mean)
+aggd <- aggd[,m[c(seq(2,9), seq(16,19))]]
 
 z <- readRDS(file.path(dir_data_misc, "HCP_meanFD.rds"))
 z <- with(z , aggregate(FDmean, by=list(subject) , FUN=mean)  )
@@ -1654,89 +1914,138 @@ dfgg$cut <- factor(gsub(".*\n", "", gsub(" mm", "", dfgg$m)))
 ```
 
 ```{r}
-pdf(plt_fmt("FC_validity.pdf"))
+pdf(plt_fmt("FC_validity2.pdf"), width=7, height=8)
 
 dfgg$group <- factor(
   ifelse(grepl("FD", dfgg$m2), "FD", dfgg$m2),
   levels=c("FD", "ICA", "DVARS")
 )
+dfgg$keep <- dfgg$sub %in% paste0("s", names(subKeep))
+
+dfgg$mot2 <- factor(
+  ifelse(dfgg$keep, as.character(dfgg$mot2), "Dropped"),
+  levels=c("Low", "Mid", "High", "Dropped")
+)
+# 
+# ggplot(dfgg, aes(x=cut, y=crmse)) + 
+#     #ggnewscale::new_scale_color() +
+#     geom_line(data=dfgg, aes(group=sub, color=mot2), alpha=.5, size=.45) + 
+#     geom_line(data=subset(dfgg, mot2!="Low"), aes(group=sub, color=mot2), alpha=.5, size=.45) + 
+#     geom_line(data=subset(dfgg, mot2=="High"), aes(group=sub, color=mot2), alpha=.5, size=.45) + 
+#     geom_boxplot(fill="#ffffff", alpha=1, width=.25, outlier.shape = NA) + 
+#     geom_point(data=subset(dfgg, mot2!="Low"), aes(group=sub, color=mot2), size=1) + 
+#     geom_point(data=dfgg, aes(group=sub, color=mot2), size=1) + 
+#     geom_point(data=subset(dfgg, mot2=="High"), aes(group=sub, color=mot2), size=1) + 
+#     geom_hline(yintercept=0, linetype="dashed") +
+#     #geom_point(aes(x=m, y=crmse, color=mot), size=2, alpha=.85) +
+#     #geom_violin(aes(x=m, y=crmse, fill=m), alpha=1) + 
+#     scale_color_manual(values=c("#42c1d2", "#268dd1", "#ac1f1a")) +
+#     scale_alpha_continuous(c(0,1)) +
+#     scale_y_reverse() +
+#     #scale_fill_manual(values=as.character(color_m[c("FD", "modFD", "FD" ,"modFD", "ICA")])) +
+#     #scale_color_manual(values=as.character(color_m[c("ICA", "FD", "modFD", "FD" ,"modFD")]))
+#     theme_cowplot() +
+#     theme(legend.position="bottom") +
+#     xlab("Scrubbing cutoff") +
+#     ylab("Reduction in RMSE relative to denoising only") +
+#     facet_grid(.~m2, scales="free_x", space="free")
+
+dfgg <- subset(dfgg, m2!="FD")
 
 ggplot(dfgg, aes(x=cut, y=crmse)) + 
     #ggnewscale::new_scale_color() +
-    geom_line(data=dfgg, aes(group=sub, color=mot2), alpha=.5, size=.45) + 
-    geom_line(data=subset(dfgg, mot2!="Low"), aes(group=sub, color=mot2), alpha=.5, size=.45) + 
-    geom_line(data=subset(dfgg, mot2=="High"), aes(group=sub, color=mot2), alpha=.5, size=.45) + 
-    geom_boxplot(fill="#ffffff", alpha=1, width=.25, outlier.shape = NA) + 
-    geom_point(data=subset(dfgg, mot2!="Low"), aes(group=sub, color=mot2), size=1) + 
-    geom_point(data=dfgg, aes(group=sub, color=mot2), size=1) + 
-    geom_point(data=subset(dfgg, mot2=="High"), aes(group=sub, color=mot2), size=1) + 
+    geom_line(data=subset(dfgg, mot2=="Low"), aes(group=sub, color=mot2), alpha=.5, size=.7) + 
+    geom_line(data=subset(dfgg, mot2=="Mid"), aes(group=sub, color=mot2), alpha=.5, size=.7) + 
+    geom_line(data=subset(dfgg, mot2=="High"), aes(group=sub, color=mot2), alpha=.5, size=.7) + 
+    geom_line(data=subset(dfgg, mot2=="Dropped"), aes(group=sub, color=mot2), linetype="dashed", alpha=.5, size=.7) + 
+    geom_boxplot(data=subset(dfgg, mot2!="Dropped"), fill="#ffffff", alpha=1, width=.25, outlier.shape = NA) + 
+    geom_point(data=subset(dfgg, mot2=="Low"), aes(group=sub, color=mot2), size=1.5) + 
+    geom_point(data=subset(dfgg, mot2=="Mid"), aes(group=sub, color=mot2), size=1.5) + 
+    geom_point(data=subset(dfgg, mot2=="High"), aes(group=sub, color=mot2), size=1.5) + 
+    geom_point(data=subset(dfgg, mot2=="Dropped"), aes(group=sub, color=mot2), size=1.5) + 
     geom_hline(yintercept=0, linetype="dashed") +
     #geom_point(aes(x=m, y=crmse, color=mot), size=2, alpha=.85) +
     #geom_violin(aes(x=m, y=crmse, fill=m), alpha=1) + 
-    scale_color_manual(values=c("#42c1d2", "#268dd1", "#ac1f1a")) +
+    scale_color_manual(values=setNames(c("#42c1d2", "#268dd1", "#ac1f1a", "#444444"), levels(dfgg$mot2))) +
     scale_alpha_continuous(c(0,1)) +
+    scale_y_reverse() +
     #scale_fill_manual(values=as.character(color_m[c("FD", "modFD", "FD" ,"modFD", "ICA")])) +
     #scale_color_manual(values=as.character(color_m[c("ICA", "FD", "modFD", "FD" ,"modFD")]))
     theme_cowplot() +
     theme(legend.position="bottom") +
     xlab("Scrubbing cutoff") +
-    ylab("Change in RMSE from denoising only") +
+    ylab("Reduction in RMSE relative to denoising only") +
     facet_grid(.~m2, scales="free_x", space="free")
+
+# dfgg <- subset(dfgg, keep)
+
+# ggplot(dfgg, aes(x=cut, y=crmse)) + 
+#     #ggnewscale::new_scale_color() +
+#     geom_line(data=dfgg, aes(group=sub, color=mot2), alpha=.5, size=.45) + 
+#     geom_line(data=subset(dfgg, mot2!="Low"), aes(group=sub, color=mot2), alpha=.5, size=.45) + 
+#     geom_line(data=subset(dfgg, mot2=="High"), aes(group=sub, color=mot2), alpha=.5, size=.45) + 
+#     geom_boxplot(fill="#ffffff", alpha=1, width=.25, outlier.shape = NA) + 
+#     geom_point(data=subset(dfgg, mot2!="Low"), aes(group=sub, color=mot2), size=1) + 
+#     geom_point(data=dfgg, aes(group=sub, color=mot2), size=1) + 
+#     geom_point(data=subset(dfgg, mot2=="High"), aes(group=sub, color=mot2), size=1) + 
+#     geom_hline(yintercept=0, linetype="dashed") +
+#     #geom_point(aes(x=m, y=crmse, color=mot), size=2, alpha=.85) +
+#     #geom_violin(aes(x=m, y=crmse, fill=m), alpha=1) + 
+#     scale_color_manual(values=c("#42c1d2", "#268dd1", "#ac1f1a")) +
+#     scale_alpha_continuous(c(0,1)) +
+#     scale_y_reverse() +
+#     #scale_fill_manual(values=as.character(color_m[c("FD", "modFD", "FD" ,"modFD", "ICA")])) +
+#     #scale_color_manual(values=as.character(color_m[c("ICA", "FD", "modFD", "FD" ,"modFD")]))
+#     theme_cowplot() +
+#     theme(legend.position="bottom") +
+#     xlab("Scrubbing cutoff") +
+#     ylab("Reduction in RMSE relative to denoising only") +
+#     facet_grid(.~m2, scales="free_x", space="free")
 
 dev.off()
 ```
 
+### Grid plot
+
 ```{r}
-pdf(plt_fmt("FC_validity.pdf"))
-d1 <- subset(dfgg, grepl("FD", m))
-ggplot(d1, aes(x=cut, y=crmse)) + 
-  #ggnewscale::new_scale_color() +
-  geom_boxplot(fill="#ffffff", alpha=1, width=.2, outlier.shape = NA) + 
-  geom_line(data=d1, aes(group=sub, color=mot2), alpha=.5, size=.45) + 
-  geom_line(data=subset(d1, mot2!="Low"), aes(group=sub, color=mot2), alpha=.5, size=.45) + 
-  geom_line(data=subset(d1, mot2=="High"), aes(group=sub, color=mot2), alpha=.5, size=.45) + 
-  geom_hline(yintercept=0, linetype="dashed") +
-  #geom_point(aes(x=m, y=crmse, color=mot), size=2, alpha=.85) +
-  #geom_violin(aes(x=m, y=crmse, fill=m), alpha=1) + 
-  #scale_color_viridis(name="Mean FD", values=scales::rescale(seq(7), c(1,0))) +
-  scale_color_manual(values=c("#42c1d2", "#0071bc", "#ac1f1a")) +
-  scale_alpha_continuous(c(0,1)) +
-  scale_fill_manual(values=as.character(color_m[c("FD", "modFD", "FD" ,"modFD", "ICA")])) +
-  #scale_color_manual(values=as.character(color_m[c("ICA", "FD", "modFD", "FD" ,"modFD")]))
-  theme_cowplot() +
-  theme(legend.position="bottom") +
-  xlab("Scrubbing method") +
-  ylab("Change in RMSE from denoising only") +
-  facet_grid(.~m2)
+agg <- readRDS(file.path(dir_FCval, "../3_FCval2", paste0("FC_CC2MP6.rds")))
+#agg <- sqrt(apply(agg^2, c(3,4), mean))
+agg <- (apply(abs(agg), c(3,4), median))
+```
 
-d1 <- subset(dfgg, grepl("ICA", m))
-d1$m <- factor(d1$m, levels=levels(d1$m)[c(5,6,3,4,1,2)])
-p0 <- ggplot(d1, aes(x=cut, y=crmse)) + 
-  #ggnewscale::new_scale_color() +
-  scale_color_manual(values=c("#42c1d2", "#0071bc", "#ac1f1a")) +
-  scale_alpha_continuous(c(0,1)) +
-  scale_fill_manual(values=as.character(color_m[c("ICA", "DVARS", "FD" ,"modFD")])) +
-  theme_cowplot() +
-  theme(legend.position="bottom") +
-  xlab("Scrubbing method") +
-  ylab("Change in RMSE from denoising only") +
-  geom_hline(yintercept=0, linetype="dashed")
 
-p1 <- p0 + 
-  geom_boxplot(fill="#cccccc", alpha=1, width=.35, outlier.shape = NA) +
-  ylim(-.003, .003)
+```{r}
+mnames <- c(
+  "Base",
+  "FD___og___", "FD___og_nfc_l4___",
+  "Lev___ICA", "Lev___fusedPCA", "Lev___PCA",
+  "DVARSdual"
+)
+mnames2 <- c(
+  "Base",
+  "FD___og___0.3", "FD___og_nfc_l4___0.2", 
+  "Lev___ICA_kurt___3", "Lev___fusedPCA_kurt___3", "Lev___PCA_kurt___3",
+  "DVARSdual"
+)
+mnames3 <- c("Baseline", "FD", "modFD", "ICA", "FusedPCA", "PCA", "DVARS")
 
-p2 <- p0 + 
-  geom_line(data=d1, aes(group=sub, color=mot2), alpha=.5, size=.45) + 
-  geom_line(data=subset(d1, mot2!="Low"), aes(group=sub, color=mot2), alpha=.5, size=.45) + 
-  geom_line(data=subset(d1, mot2=="High"), aes(group=sub, color=mot2), alpha=.5, size=.45) +
-  ylim(-.01, .01)
-
-cowplot::plot_grid(p1, p2, ncol=1, axis="l", align="hv")
-
-  #geom_point(aes(x=m, y=crmse, color=mot), size=2, alpha=.85) +
-  #geom_violin(aes(x=m, y=crmse, fill=m), alpha=1) + 
-  #scale_color_viridis(name="Mean FD", values=scales::rescale(seq(7), c(1,0)))
+pdf(plt_fmt("FC_validity_grid_scrubbing_MAD.pdf"))
+for (ii in seq(length(mnames2))) {
+  q <- (agg[1,] - agg[mnames2[ii],])
+  #print(mnames3[ii])
+  #print(quantile(q, 1-c(.99999, .9999, .999)))
+  q <- ggcorrplot2(
+    q, coloring$diverging4, divColor="white",
+    paste("Reduction in MAD:", mnames3[ii]), 
+    "Reduction in MAD", lim=.005, diagVal=0
+  )
+  # q <- ggcorrplot2(
+  #   q, coloring$diverging4, divColor="white",
+  #   paste("RMSE Reduction:", mnames3[ii]), 
+  #   "RMSE Reduction", lim=.2, diagVal=0
+  # )
+  print(q)
+} 
 dev.off()
 ```
 
@@ -1891,8 +2200,8 @@ mnames <- c(
   "DVARSdual"
 )
 mnames2 <- c(
-  "FD___og___0.3", "FD___og_nfc_l4___0.2", 
-  "Lev___ICA_kurt___3", "Lev___fusedPCA_kurt___3", "Lev___PCA_kurt___3",
+  "FD___og___0.5", "FD___og_nfc_l4___0.5", 
+  "Lev___ICA_kurt___5", "Lev___fusedPCA_kurt___5", "Lev___PCA_kurt___5",
   "CC2MP6_DVARSdual_1185"
 )
 mnames3 <- c("FD", "modFD", "ICA", "FusedPCA", "PCA", "DVARS")
@@ -1951,8 +2260,6 @@ ggplot() +
 dev.off()
 ```
 
-### but w/ t=400
-
 ```{r}
 q0 <- setNames(vector("list", length(bnames)), bnames)
 for (bname in bnames) {
@@ -2007,8 +2314,6 @@ ggplot() +
 
 rm(list=setdiff(ls(), varKeep))
 ```
-
-
 
 # P. In-depth scrubbing cutoff comparison
 
@@ -2227,7 +2532,7 @@ for (tt in seq(length(nT))) {
 dev.off()
 ```
 
-# Q. Prediction [Removed]
+# Q. Prediction
 
 ```{r eval=FALSE}
 plt_idx <- "Q"

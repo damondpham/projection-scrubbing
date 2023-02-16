@@ -100,6 +100,7 @@ stopifnot(utils::packageVersion("fMRIscrub") >= "0.8.6")
 library(ciftiTools)
 stopifnot(utils::packageVersion("ciftiTools") >= "0.8.0")
 ciftiTools.setOption("wb_path", wb_path)
+library(fMRItools)
 
 hcp_T <- 1200
 nDrop <- 15
