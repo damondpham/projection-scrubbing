@@ -202,12 +202,14 @@ for (baseName in baseNames) {
     FCval_ii[["Base"]] <- flag_wrap2_val()
 
     flag <- list(
-      modFD = fd[[FD_type]] > .5,
+      modFD_strict = fd[["FD_og_l4"]] > 2,
+      modFD = fd[["FD_og_l4"]] > .5,
       proj = lev$measure[["ICA_kurt"]] > 3 * median(lev$measure[["ICA_kurt"]]),
       DVARS = (dvars$dv$DPD > 5) & (dvars$dv$ZD > qnorm(1-.05/(hcp_T-nDrop))) 
     )
 
-    # for verification
+    # singles
+    FCval_ii[["modFD_strict"]] <- flag_wrap2_val(flag$modFD_strict)
     FCval_ii[["modFD"]] <- flag_wrap2_val(flag$modFD)
     FCval_ii[["DVARS"]] <- flag_wrap2_val(flag$proj)
     FCval_ii[["proj"]] <- flag_wrap2_val(flag$DVARS)
