@@ -57,7 +57,7 @@ flag_wrap2_val <- function(flag=NULL, tmasks="default") {
   } else if (tmasks=="modFD_strict") {
     tmasks <- list(
       full = seq(nT),
-      mid = vols_from_nT(417), # 3*60/.72
+      mid = vols_from_nT(417), # 5*60/.72
       out = setdiff(seq(nT), vols_from_nT(417))
     )
   } else { stop() }
@@ -128,7 +128,7 @@ for (baseName in baseNames) {
     suffix <- paste0(subject, "_v", visit + (!test)*2, "_", acquisition)
 
     FCval_fname <- file.path(dir_FCval, "../3_FCval2_union", baseName, paste0(suffix, ".rds"))
-    #if (skip_ii(FCval_fname)) { next }
+    if (skip_ii(FCval_fname)) { next }
 
     # # Mean signals
     # ms <- data.frame(readRDS(file.path(dir_meanSignals, paste0(suffix, ".rds"))))
@@ -202,23 +202,28 @@ for (baseName in baseNames) {
     FCval_ii[["Base"]] <- flag_wrap2_val()
 
     flag <- list(
-      modFD_strict = fd[["FD_og_l4"]] > 2,
-      modFD = fd[["FD_og_l4"]] > .5,
+      modFD_strict = fd[["og_nfc_l4"]] > .2,
+      modFD = fd[["og_nfc_l4"]] > .5,
       proj = lev$measure[["ICA_kurt"]] > 3 * median(lev$measure[["ICA_kurt"]]),
       DVARS = (dvars$dv$DPD > 5) & (dvars$dv$ZD > qnorm(1-.05/(hcp_T-nDrop))) 
     )
 
     # singles
+    cat("\tSingles")
     FCval_ii[["modFD_strict"]] <- flag_wrap2_val(flag$modFD_strict)
     FCval_ii[["modFD"]] <- flag_wrap2_val(flag$modFD)
-    FCval_ii[["DVARS"]] <- flag_wrap2_val(flag$proj)
-    FCval_ii[["proj"]] <- flag_wrap2_val(flag$DVARS)
+    FCval_ii[["DVARS"]] <- flag_wrap2_val(flag$DVARS)
+    FCval_ii[["proj"]] <- flag_wrap2_val(flag$proj)
 
     # unions
+    cat("\tUnions")
     FCval_ii[["modFD_DVARS"]] <- flag_wrap2_val(flag$modFD | flag$DVARS)
     FCval_ii[["modFD_proj"]] <- flag_wrap2_val(flag$modFD | flag$proj)
     FCval_ii[["DVARS_proj"]] <- flag_wrap2_val(flag$DVARS | flag$proj)
     FCval_ii[["modFD_DVARS_proj"]] <- flag_wrap2_val(flag$modFD | flag$DVARS | flag$proj)
+    
+    saveRDS(FCval_ii, FCval_fname)
+    cat("\n")
     
     # Unload retest data.
     if (!test) {
